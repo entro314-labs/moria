@@ -22,6 +22,12 @@ public struct RegexHit: Sendable, Identifiable, Hashable {
 /// - PDFs, documents and OCR'd images have no searchable raw bytes; their extracted text is
 ///   matched from the index with `NSRegularExpression` instead.
 /// - File names are matched from the index.
+///
+/// ripgrep picks PCRE2 when a pattern needs it (`--engine auto`), so look-around and
+/// back-references work in files as they do for names and document text (ICU); other patterns
+/// keep ripgrep's faster default engine. Both accept inline flags such as `(?-i)`.
+/// (A Homebrew ripgrep linked against Homebrew's PCRE2 misses some PCRE2 matches; the app
+/// bundles the official static build.)
 public struct RegexSearcher: Sendable {
     public let database: IndexDatabase
     public let ripgrep: URL
@@ -193,7 +199,7 @@ public struct RegexSearcher: Sendable {
         onFile: @escaping @Sendable (String, [RegexHit.Line]) -> Void
     ) async throws {
         var arguments = [
-            "--json", "--no-config", "--no-ignore", "--hidden", "--no-messages",
+            "--json", "--no-config", "--no-ignore", "--hidden", "--no-messages", "--engine", "auto",
             "--max-count", String(Self.linesPerFile), "--max-columns", "300", "--max-columns-preview",
         ]
         arguments.append(caseSensitive ? "--case-sensitive" : "--ignore-case")
@@ -234,7 +240,8 @@ public struct RegexSearcher: Sendable {
         // Exit 1 means "no matches"; 2 with output means some files were unreadable.
         if process.terminationStatus == 2, !Task.isCancelled {
             let message = String(decoding: (try? stderr.fileHandleForReading.readToEnd()) ?? Data(), as: UTF8.self)
-            if message.contains("regex parse error") || message.contains("error parsing") {
+            // Also covers a ripgrep built without PCRE2 (a Homebrew or custom install).
+            if message.contains("PCRE2") || message.contains("regex parse error") {
                 throw RegexError.invalidPattern(message.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         }

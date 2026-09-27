@@ -34,6 +34,7 @@ struct SidebarView: View {
                                 Button("Edit…") {
                                     if saved.scope == .regex {
                                         model.apply(saved)
+                                        model.editingSaved = saved
                                         model.showRegexBuilder = true
                                     } else {
                                         model.editingSaved = saved

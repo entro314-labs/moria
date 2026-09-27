@@ -5,6 +5,8 @@ import SwiftUI
 /// live highlighting, read what it means, then search or save it.
 struct RegexBuilderView: View {
     let model: SearchModel
+    /// When editing a saved regex search, saving updates it instead of creating a new one.
+    var editing: SearchModel.SavedSearch?
     @Environment(\.dismiss) private var dismiss
     @Environment(AppModel.self) private var app
     @State private var pattern = ""
@@ -54,15 +56,19 @@ struct RegexBuilderView: View {
         return Result { try NSRegularExpression(pattern: pattern, options: caseSensitive ? [] : [.caseInsensitive]) }
     }
 
-    /// ripgrep's default engine has no look-around or back-references.
-    private var unsupportedByRipgrep: String? {
-        if pattern.contains("(?=") || pattern.contains("(?!") || pattern.contains("(?<=") || pattern.contains("(?<!") {
-            return "Look-ahead and look-behind aren't supported when searching file contents."
-        }
-        if pattern.range(of: #"\\[1-9]"#, options: .regularExpression) != nil {
-            return "Back-references (\\1) aren't supported when searching file contents."
-        }
-        return nil
+    /// Searches ignore case; a case-sensitive pattern carries the inline flag, which every
+    /// engine involved understands, so it also survives in saved searches.
+    private static let caseSensitiveFlag = "(?-i)"
+
+    /// The pattern as searched and saved.
+    private var searchText: String {
+        caseSensitive ? Self.caseSensitiveFlag + pattern : pattern
+    }
+
+    /// Shows searched or saved text, splitting off the case-sensitive flag.
+    private func load(_ text: String) {
+        caseSensitive = text.hasPrefix(Self.caseSensitiveFlag)
+        pattern = caseSensitive ? String(text.dropFirst(Self.caseSensitiveFlag.count)) : text
     }
 
     var body: some View {
@@ -114,11 +120,20 @@ struct RegexBuilderView: View {
                     Spacer()
                     Button("Cancel", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
-                    Button("Save…") { saveName = ""; askingName = true }
-                        .disabled(!isValid)
+                    Button(editing == nil ? "Save…" : "Save Changes") {
+                        if let editing {
+                            app.save(SearchModel.SavedSearch(id: editing.id, name: editing.name, text: searchText,
+                                                             scope: .regex, filters: editing.filters))
+                            dismiss()
+                        } else {
+                            saveName = ""
+                            askingName = true
+                        }
+                    }
+                    .disabled(!isValid)
                     Button("Search Files") {
                         model.mode = .regex
-                        model.text = pattern
+                        model.text = searchText
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -129,13 +144,17 @@ struct RegexBuilderView: View {
         }
         .frame(width: 860, height: 560)
         .onAppear {
-            if model.mode == .regex { pattern = model.text }
+            if let editing {
+                load(editing.text)
+            } else if model.mode == .regex {
+                load(model.text)
+            }
             patternFocused = true
         }
         .alert("Save Regex Search", isPresented: $askingName) {
             TextField("Name", text: $saveName)
             Button("Save") {
-                app.save(SearchModel.SavedSearch(name: saveName.isEmpty ? pattern : saveName, text: pattern, scope: .regex, filters: model.filters))
+                app.save(SearchModel.SavedSearch(name: saveName.isEmpty ? pattern : saveName, text: searchText, scope: .regex, filters: model.filters))
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
@@ -156,12 +175,8 @@ struct RegexBuilderView: View {
             Label("Not a valid pattern", systemImage: "xmark.octagon").foregroundStyle(.red)
         case let .success(regex):
             let count = regex.numberOfMatches(in: sample, range: NSRange(sample.startIndex..., in: sample))
-            if let warning = unsupportedByRipgrep {
-                Label(warning, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-            } else {
-                Label("\(count) match\(count == 1 ? "" : "es") in the test text", systemImage: count > 0 ? "checkmark.circle" : "circle")
-                    .foregroundStyle(count > 0 ? .green : .secondary)
-            }
+            Label("\(count) match\(count == 1 ? "" : "es") in the test text", systemImage: count > 0 ? "checkmark.circle" : "circle")
+                .foregroundStyle(count > 0 ? .green : .secondary)
         }
     }
 
@@ -203,7 +218,7 @@ struct RegexBuilderView: View {
             if !saved.isEmpty {
                 Section("Saved") {
                     ForEach(saved) { search in
-                        Button(search.name) { pattern = search.text }.buttonStyle(.plain).help(search.text)
+                        Button(search.name) { load(search.text) }.buttonStyle(.plain).help(search.text)
                     }
                 }
             }

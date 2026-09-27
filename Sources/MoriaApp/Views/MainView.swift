@@ -88,8 +88,8 @@ struct MainView: View {
         .sheet(isPresented: $model.showCriteria, onDismiss: { model.editingSaved = nil }) {
             CriteriaBuilderView(model: model, editing: model.editingSaved).environment(app)
         }
-        .sheet(isPresented: $model.showRegexBuilder) {
-            RegexBuilderView(model: model).environment(app)
+        .sheet(isPresented: $model.showRegexBuilder, onDismiss: { model.editingSaved = nil }) {
+            RegexBuilderView(model: model, editing: model.editingSaved).environment(app)
         }
         .sheet(isPresented: Binding(get: { !onboarded }, set: { if !$0 { onboarded = true } })) {
             OnboardingView { onboarded = true }

@@ -321,6 +321,20 @@ struct IndexTests {
         await #expect(throws: RegexSearcher.RegexError.self) {
             for try await _ in searcher.search(pattern: "([", filters: SearchQuery()) {}
         }
+
+        // Files get PCRE2 when a pattern needs it, so look-around and inline flags work as for
+        // names and document text.
+        func names(_ pattern: String) async throws -> Set<String> {
+            var found = Set<String>()
+            for try await hit in searcher.search(pattern: pattern, filters: SearchQuery()) {
+                found.insert((hit.path as NSString).lastPathComponent)
+            }
+            return found
+        }
+        #expect(try await names(#"(?<=rent )receipt\b"#) == ["receipt.txt", "draft.txt"])
+        #expect(try await names(#"(?<=Invoice )INV-\d+"#) == ["invoice.pdf"])
+        #expect(try await names("monthly rent") == ["receipt.txt"])
+        #expect(try await names("(?-i)monthly rent").isEmpty)
     }
 
     @Test func vectorIndexRanksByBestChunk() async throws {
