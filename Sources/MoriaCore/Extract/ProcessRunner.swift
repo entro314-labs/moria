@@ -1,4 +1,6 @@
 import Foundation
+import Subprocess
+import System
 
 /// Limits how many operations run at once (used to keep OCR from saturating the machine).
 public actor AsyncLimiter {
@@ -36,61 +38,54 @@ public actor AsyncLimiter {
 /// Error from a subprocess that exited unsuccessfully.
 public struct ProcessFailure: Error, CustomStringConvertible {
     public var executable: String
-    public var status: Int32
+    public var status: TerminationStatus
     public var stderr: String
-    public var description: String { "\(executable) exited with \(status): \(stderr)" }
+    public var description: String { "\(executable) \(status): \(stderr)" }
 }
 
 enum ProcessRunner {
-    /// Runs a process and returns up to `maxBytes` of stdout, terminating it once the limit is hit.
+    /// Runs a process and returns up to `maxBytes` of stdout, stopping it once the limit is hit.
     ///
-    /// Blocking pipe reads happen on a GCD thread so the Swift concurrency pool isn't blocked.
-    /// A non-zero exit is an error unless output was truncated by the limit (the process was
-    /// killed on purpose) or `acceptedStatuses` includes it.
+    /// Standard error is read while standard output is, so a child that writes a lot of errors
+    /// can't block on a full pipe; cancelling the calling task stops the child. A non-zero exit
+    /// is an error unless output was cut off by the limit (the process was stopped on purpose)
+    /// or `acceptedStatuses` includes it.
     static func output(
         executable: String, arguments: [String], maxBytes: Int, acceptedStatuses: Set<Int32> = [0]
     ) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = arguments
-                let stdout = Pipe()
-                let stderr = Pipe()
-                process.standardOutput = stdout
-                process.standardError = stderr
-                // Not `waitUntilExit()`, which spins a run loop and can miss the exit (see
-                // `RegexSearcher.ripgrepBatch`).
-                let exited = DispatchSemaphore(value: 0)
-                process.terminationHandler = { _ in exited.signal() }
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                var data = Data()
-                var truncated = false
-                let reader = stdout.fileHandleForReading
-                while let chunk = try? reader.read(upToCount: 65536), !chunk.isEmpty {
-                    data.append(chunk)
-                    if data.count >= maxBytes {
-                        truncated = true
-                        process.terminate()
-                        break
-                    }
-                }
-                let errorOutput = (try? stderr.fileHandleForReading.readToEnd()) ?? Data()
-                exited.wait()
-                if truncated || acceptedStatuses.contains(process.terminationStatus) {
-                    continuation.resume(returning: data.prefix(maxBytes))
-                } else {
-                    continuation.resume(throwing: ProcessFailure(
-                        executable: executable, status: process.terminationStatus,
-                        stderr: String(decoding: errorOutput.prefix(500), as: UTF8.self)
-                    ))
+        let result = try await run(
+            .path(FilePath(executable)), arguments: Arguments(arguments),
+            input: .none, output: .sequence, error: .sequence
+        ) { execution in
+            async let errorHead = head(of: execution.standardError, maxBytes: 500)
+            var data = Data()
+            var truncated = false
+            for try await buffer in execution.standardOutput {
+                buffer.withUnsafeBytes { data.append(contentsOf: $0) }
+                if data.count >= maxBytes {
+                    truncated = true
+                    await execution.teardown(using: [])
+                    break
                 }
             }
+            return (data: data.prefix(maxBytes), truncated: truncated, errors: try await errorHead)
         }
+        let output = result.closureResult
+        if output.truncated { return output.data }
+        if case let .exited(code) = result.terminationStatus, acceptedStatuses.contains(code) { return output.data }
+        throw ProcessFailure(
+            executable: executable, status: result.terminationStatus,
+            stderr: String(decoding: output.errors, as: UTF8.self)
+        )
+    }
+
+    /// Reads `stream` to its end (so the child never blocks writing it), keeping the first
+    /// `maxBytes`.
+    static func head(of stream: SubprocessOutputSequence, maxBytes: Int) async throws -> Data {
+        var data = Data()
+        for try await buffer in stream where data.count < maxBytes {
+            buffer.withUnsafeBytes { data.append(contentsOf: $0.prefix(maxBytes - data.count)) }
+        }
+        return data
     }
 }

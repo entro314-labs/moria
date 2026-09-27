@@ -42,6 +42,46 @@ struct ExtractorTests {
         #expect(try extractor.readText(url)?.utf8.count == 4096)
     }
 
+    // MARK: Subprocesses (unzip for Office and EPUB text)
+
+    @Test(.timeLimit(.minutes(1))) func subprocessWithNoisyStandardErrorFinishes() async throws {
+        // 200 KB on stderr before any stdout: more than a pipe holds, so stderr must be read
+        // while stdout is, or the child blocks forever.
+        let data = try await ProcessRunner.output(
+            executable: "/bin/sh", arguments: ["-c", "head -c 200000 /dev/zero | tr '\\0' x >&2; echo done"], maxBytes: 1024
+        )
+        #expect(String(decoding: data, as: UTF8.self) == "done\n")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func subprocessOutputStopsAtTheLimit() async throws {
+        let data = try await ProcessRunner.output(executable: "/usr/bin/yes", arguments: [], maxBytes: 1000)
+        #expect(data.count == 1000)
+    }
+
+    @Test func subprocessFailureReportsStatusAndStandardError() async throws {
+        await #expect(throws: ProcessFailure.self) {
+            try await ProcessRunner.output(executable: "/bin/sh", arguments: ["-c", "echo oops >&2; exit 3"], maxBytes: 1024)
+        }
+        do {
+            _ = try await ProcessRunner.output(executable: "/bin/sh", arguments: ["-c", "echo oops >&2; exit 3"], maxBytes: 1024)
+        } catch let failure as ProcessFailure {
+            #expect(failure.description.contains("3") && failure.stderr == "oops\n")
+        }
+        let accepted = try await ProcessRunner.output(
+            executable: "/bin/sh", arguments: ["-c", "echo partial; exit 11"], maxBytes: 1024, acceptedStatuses: [0, 11]
+        )
+        #expect(String(decoding: accepted, as: UTF8.self) == "partial\n")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellingASubprocessStopsIt() async throws {
+        let started = ContinuousClock.now
+        let run = Task { try await ProcessRunner.output(executable: "/bin/sleep", arguments: ["30"], maxBytes: 1024) }
+        try await Task.sleep(for: .milliseconds(200))
+        run.cancel()
+        _ = await run.result
+        #expect(ContinuousClock.now - started < .seconds(10))
+    }
+
     @Test func truncatesOnCharacterBoundary() {
         let text = String(repeating: "α", count: 10)  // 2 bytes each
         #expect(ContentExtractor.truncate(text, toUTF8Bytes: 5) == "αα")

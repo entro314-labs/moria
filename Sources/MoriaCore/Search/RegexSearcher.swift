@@ -1,5 +1,7 @@
 import Foundation
 import GRDB
+import Subprocess
+import System
 
 /// A file matching a regular expression, with the matching lines.
 public struct RegexHit: Sendable, Identifiable, Hashable {
@@ -204,27 +206,16 @@ public struct RegexSearcher: Sendable {
         ]
         arguments.append(caseSensitive ? "--case-sensitive" : "--ignore-case")
         arguments += ["--regexp", pattern, "--"] + paths
-        let process = Process()
-        process.executableURL = ripgrep
-        process.arguments = arguments
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        // The exit status arrives through the termination handler. `waitUntilExit()` spins a run
-        // loop, and called from a concurrency thread it was seen never to return after ripgrep
-        // had exited (a test run hung there for half an hour).
-        let (exits, exited) = AsyncStream<Int32>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        process.terminationHandler = { process in
-            exited.yield(process.terminationStatus)
-            exited.finish()
-        }
-        try process.run()
-
-        try await withTaskCancellationHandler {
+        // Cancelling the search (the consumer stopped, or a new search began) stops ripgrep.
+        let result = try await run(
+            .path(FilePath(ripgrep.path)), arguments: Arguments(arguments),
+            input: .none, output: .sequence, error: .sequence
+        ) { execution in
+            // Read alongside standard output, so ripgrep can't block on a full error pipe.
+            async let errorHead = ProcessRunner.head(of: execution.standardError, maxBytes: 4096)
             var currentPath: String?
             var lines: [RegexHit.Line] = []
-            for try await line in stdout.fileHandleForReading.bytes.lines {
+            for try await line in execution.standardOutput.strings() {
                 guard let event = try? JSONDecoder().decode(RipgrepEvent.self, from: Data(line.utf8)) else { continue }
                 switch event.type {
                 case "begin":
@@ -241,14 +232,11 @@ public struct RegexSearcher: Sendable {
                     break
                 }
             }
-        } onCancel: {
-            process.terminate()
+            return try await errorHead
         }
-        var status: Int32 = 0
-        for await code in exits { status = code }
         // Exit 1 means "no matches"; 2 with output means some files were unreadable.
-        if status == 2, !Task.isCancelled {
-            let message = String(decoding: (try? stderr.fileHandleForReading.readToEnd()) ?? Data(), as: UTF8.self)
+        if result.terminationStatus == .exited(2) {
+            let message = String(decoding: result.closureResult, as: UTF8.self)
             // Also covers a ripgrep built without PCRE2 (a Homebrew or custom install).
             if message.contains("PCRE2") || message.contains("regex parse error") {
                 throw RegexError.invalidPattern(message.trimmingCharacters(in: .whitespacesAndNewlines))

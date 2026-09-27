@@ -1,6 +1,8 @@
 import ArgumentParser
 import Foundation
 import MoriaCore
+import Subprocess
+import System
 
 @main
 struct Moria: AsyncParsableCommand {
@@ -125,11 +127,13 @@ struct Search: AsyncParsableCommand {
             var components = URLComponents(string: "moria://search")!
             components.queryItems = [URLQueryItem(name: "q", value: text)]
             if regex { components.queryItems?.append(URLQueryItem(name: "scope", value: "regex")) }
-            let open = Process()
-            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            open.arguments = [components.url!.absoluteString]
-            try open.run()
-            open.waitUntilExit()
+            let opened = try await Subprocess.run(
+                .path("/usr/bin/open"), arguments: [components.url!.absoluteString], output: .discarded, error: .string(limit: 4096)
+            )
+            guard opened.terminationStatus.isSuccess else {
+                FileHandle.standardError.write(Data("Moria could not be opened: \(opened.standardError)\n".utf8))
+                throw ExitCode.failure
+            }
             return
         }
         let db = try database.open()
