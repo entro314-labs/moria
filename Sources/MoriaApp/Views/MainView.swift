@@ -209,7 +209,15 @@ private struct StatusBar: View {
                     .help("Moria can't see Mail, Messages and other protected folders. Click to allow Full Disk Access.")
             }
             if let error = app.lastError {
-                Label(error, systemImage: "exclamationmark.triangle")
+                // App errors stay until dismissed; indexing errors clear when indexing succeeds.
+                Button { app.lastError = nil } label: {
+                    Label(error, systemImage: "exclamationmark.triangle").lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .help(error + "\nClick to dismiss.")
+            } else if let error = app.progress.lastError {
+                Label("Indexing problem: " + error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
                     .lineLimit(1)
                     .help(error)

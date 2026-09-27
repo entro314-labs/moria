@@ -281,6 +281,9 @@ struct IndexTests {
         #expect(orphans == 0)
         await controller.setPaused(true)
         #expect(await controller.currentProgress().isPaused)
+        // Confirming a rebuild means now: it resumes paused indexing.
+        await controller.rebuild()
+        #expect(await !controller.currentProgress().isPaused)
     }
 
     @Test func picksUpChangesFromFSEvents() async throws {

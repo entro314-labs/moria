@@ -15,6 +15,8 @@ final class AppModel {
     private(set) var stats: IndexDatabase.Stats?
     private(set) var hasFullDiskAccess = FullDiskAccess.isGranted
     private(set) var hotKeyError: String?
+    /// The last failed action of the app itself (indexing errors are in `progress.lastError`,
+    /// which clears once indexing succeeds again).
     var lastError: String?
 
     var hotKeyChoice: HotKey.Choice {
@@ -106,12 +108,13 @@ final class AppModel {
         Task {
             var lastUpdate = Date.distantPast
             for await progress in controller.progress {
-                // The indexer reports per batch; four UI updates a second are plenty.
-                let phaseChanged = progress.phase != self.progress.phase
-                guard phaseChanged || Date().timeIntervalSince(lastUpdate) > 0.25 else { continue }
+                // The indexer reports per batch; four UI updates a second are plenty. State
+                // changes always go through, since a dropped one would stay wrong until the next.
+                let stateChanged = progress.phase != self.progress.phase || progress.isPaused != self.progress.isPaused
+                    || progress.lastError != self.progress.lastError
+                guard stateChanged || Date().timeIntervalSince(lastUpdate) > 0.25 else { continue }
                 lastUpdate = Date()
                 self.progress = progress
-                if let error = progress.lastError { lastError = error }
                 if progress.phase == .idle || Date().timeIntervalSince(lastStatsRefresh) > 10 {
                     refreshStats()
                 }
@@ -190,6 +193,7 @@ final class AppModel {
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+        progress.isPaused = false  // rebuilding resumes paused indexing
         Task { await controller.rebuild() }
     }
 

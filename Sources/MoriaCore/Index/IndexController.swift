@@ -101,13 +101,16 @@ public actor IndexController {
         if !paused { wake?.yield() }
     }
 
-    /// Deletes the whole index and rebuilds it from a full scan.
+    /// Deletes the whole index and rebuilds it from a full scan, resuming indexing if it was
+    /// paused (asking for a rebuild means now).
     ///
     /// The erase happens when the next full scan starts, never while one is running: a scan in
     /// progress would keep writing under folder ids the erase deleted.
     public func rebuild() {
         rebuildRequested = true
         fullScanRequested = true
+        state.isPaused = false
+        publish(phase: state.phase)
         wake?.yield()
     }
 
@@ -215,7 +218,13 @@ public actor IndexController {
             do {
                 if fullScanRequested {
                     fullScanRequested = false
-                    try await fullScan()
+                    do {
+                        try await fullScan()
+                    } catch {
+                        // Retried at the next wake-up; the error stays shown until a pass succeeds.
+                        if !(error is CancellationError) { fullScanRequested = true }
+                        throw error
+                    }
                 } else if !queuedChanges.isEmpty {
                     try applyQueuedChanges()
                 } else if try await extractBatch() {
@@ -223,6 +232,8 @@ public actor IndexController {
                 } else if settings.semanticSearchEnabled, try await embedBatch() {
                     continue
                 } else {
+                    // Everything is done: an earlier error no longer applies.
+                    state.lastError = nil
                     break
                 }
             } catch is CancellationError {
@@ -322,7 +333,9 @@ public actor IndexController {
         let now = Date()
         state.lastScanDate = now
         try database.setMeta(MetaKey.lastScan, String(now.timeIntervalSince1970))
-        try persistEventID(max(eventID, queuedEventID ?? 0))
+        // Not past `queuedEventID`: changes that arrived during the scan persist their own ID once
+        // applied, so quitting before then replays them.
+        try persistEventID(eventID)
         publish(phase: .scanning)
     }
 
