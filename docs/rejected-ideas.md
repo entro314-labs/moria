@@ -2,22 +2,14 @@
 
 Reviewed and turned down, so they aren't proposed again without new reasons.
 
-## swift-subprocess dependency
+## SpotlightSearchTool for Ask
 
-Swift 6.4 made `swift-subprocess` 1.0 stable, and it could replace `ProcessRunner` and the
-`Process` handling in `RegexSearcher`. Rejected: it adds a dependency to replace about 90 lines
-that work. The one real problem in that code (waiting for exit with `waitUntilExit()`, which could
-hang) is fixed in place with termination handlers.
+Foundation Models' `SpotlightSearchTool` (WWDC26, "LLM search using Core Spotlight"; Core
+Spotlight docs: "Spotlight search tool") lets the on-device model search an app's own Core
+Spotlight index — the `CSSearchableItem`s the app donated — and answer from the results.
 
-## Merging the ⌥⌘F and ⌘L menu items
-
-"Search" (⌥⌘F) and "Go to Search Field" (⌘L) do the same thing. Rejected: both shortcuts are
-deliberate (⌥⌘F as in Finder, ⌘L as in browsers and Spotlight-style apps), and a second menu item
-is the way to offer two shortcuts for one action.
-
-## Apple's Spotlight search tool for Foundation Models
-
-A Core Spotlight–backed local search tool for the on-device model was mentioned in a WWDC26
-session. Rejected: the only source is a session summary, not the documentation, and Moria doesn't
-need it. Ask turns a request into filters over Moria's own index, which already searches what
-Spotlight skips.
+Rejected: Moria's index is its own SQLite database of millions of entries and never donates to
+Core Spotlight, so using the tool would mean copying the whole index into Spotlight's store.
+Ask also doesn't answer questions; it turns a request into filters the user can see and edit.
+If Moria ever answers questions about files (RAG), the fit is a custom `Tool` over
+`SearchEngine`, not this one.
