@@ -160,6 +160,50 @@ struct IndexTests {
         #expect(try database.loadSettings().roots == [root.path, extra.path])
     }
 
+    @Test func extractionSettingChangesKeepTextSearchable() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+
+        var settings = await controller.settings
+        settings.maxContentKilobytes = 128
+        try await controller.updateSettings(settings)
+        // Queued to be read again, but the old text still finds the file meanwhile.
+        #expect(try database.stats().contentPending == 4)
+        #expect(try await search(engine, "apartment") == ["Documents/Taxes/receipt.txt"])
+        try await controller.indexNow(full: false)
+        #expect(try database.stats().contentPending == 0)
+        #expect(try await search(engine, "apartment") == ["Documents/Taxes/receipt.txt"])
+
+        // A stale file that no longer yields text loses its old text.
+        try database.requeueContent()
+        let (id, mtime) = try await database.pool.read { db in
+            (try Int64.fetchOne(db, sql: "SELECT id FROM file WHERE name = 'receipt.txt'")!,
+             try Double.fetchOne(db, sql: "SELECT mtime FROM file WHERE name = 'receipt.txt'")!)
+        }
+        try database.store([ExtractionResult(id: id, mtime: mtime, state: .none, text: nil, storeText: false)])
+        #expect(try await search(engine, "apartment").isEmpty)
+    }
+
+    @Test func symlinksAreIndexedByNameOnly() async throws {
+        let outside = try TestSupport.makeTempDirectory()
+        try Data("platypus habitat notes".utf8).write(to: outside.appending(path: "notes.txt"))
+        try FileManager.default.createSymbolicLink(atPath: root.appending(path: "Documents/link.txt").path,
+                                                   withDestinationPath: outside.appending(path: "notes.txt").path)
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+
+        #expect(try await search(engine, "platypus").isEmpty)
+        #expect(try await search(engine, "name:link") == ["Documents/link.txt"])
+        guard RegexSearcher.locateRipgrep() != nil else { return }
+        var hits: [RegexHit] = []
+        for try await hit in try RegexSearcher(database: database).search(pattern: "platypus", filters: SearchQuery()) {
+            hits.append(hit)
+        }
+        #expect(hits.isEmpty)
+    }
+
     @Test func cancelledScanKeepsTheIndex() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

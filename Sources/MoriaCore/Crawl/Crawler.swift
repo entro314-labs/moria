@@ -16,6 +16,8 @@ public struct FileMeta: Sendable, Equatable {
     public var isCloudOnly: Bool
     /// False inside content-excluded locations: indexed by name only.
     public var contentEligible: Bool = true
+    /// Symbolic links are indexed by name; their targets are never read through them.
+    public var isSymlink: Bool = false
 }
 
 /// Rules deciding which entries a crawl visits.
@@ -144,7 +146,8 @@ struct Crawler {
                 kind: kind,
                 isHidden: name.hasPrefix(".") || (st.st_flags & UInt32(UF_HIDDEN)) != 0,
                 isCloudOnly: (st.st_flags & UInt32(SF_DATALESS)) != 0,
-                contentEligible: !contentExcluded
+                contentEligible: !contentExcluded,
+                isSymlink: info == FTS_SL || info == FTS_SLNONE
             ))
             if batch.count >= batchSize {
                 try visit(batch)
@@ -168,7 +171,8 @@ struct Crawler {
             mtime: Self.seconds(st.st_mtimespec), btime: Self.seconds(st.st_birthtimespec),
             kind: kind, isHidden: name.hasPrefix(".") || (st.st_flags & UInt32(UF_HIDDEN)) != 0,
             isCloudOnly: (st.st_flags & UInt32(SF_DATALESS)) != 0,
-            contentEligible: rules.isContentEligible(path: path)
+            contentEligible: rules.isContentEligible(path: path),
+            isSymlink: (st.st_mode & S_IFMT) == S_IFLNK
         )
     }
 

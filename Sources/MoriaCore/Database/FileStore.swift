@@ -78,6 +78,7 @@ struct MetadataWriter {
 
     private func initialState(_ meta: FileMeta) -> ContentState {
         if meta.isDir { return .none }
+        if meta.isSymlink { return .link }
         if !meta.contentEligible { return .excluded }
         if meta.size == 0 || meta.size > maxFileBytes { return .none }
         if meta.isCloudOnly { return .cloudOnly }
@@ -125,33 +126,44 @@ extension IndexDatabase {
         }
     }
 
-    /// Next files to extract, newest first. `images: false` returns everything except images,
-    /// so fast text extraction finishes before the slow OCR pass (`images: true`) starts.
+    /// Next files to extract, newest first: files never read before stale ones, whose old text
+    /// is still searchable. `images: false` returns everything except images, so fast text
+    /// extraction finishes before the slow OCR pass (`images: true`) starts.
     func pendingFiles(limit: Int, images: Bool) throws -> [PendingFile] {
         try pool.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
-                FROM file f JOIN dir d ON d.id = f.dirId
-                WHERE f.contentState = 0 AND (f.kind = 'image') = ? ORDER BY f.mtime DESC LIMIT ?
-                """, arguments: [images, limit]).map { row in
-                PendingFile(
-                    id: row["id"], path: row["path"], ext: row["ext"],
-                    kind: FileKind(rawValue: row["kind"]) ?? .other, size: row["size"], mtime: row["mtime"]
-                )
+            var files: [PendingFile] = []
+            // One query per state, so each uses its partial index.
+            for state in [ContentState.pending, .stale] where files.count < limit {
+                files += try Row.fetchAll(db, sql: """
+                    SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
+                    FROM file f JOIN dir d ON d.id = f.dirId
+                    WHERE f.contentState = ? AND (f.kind = 'image') = ? ORDER BY f.mtime DESC LIMIT ?
+                    """, arguments: [state.rawValue, images, limit - files.count]).map { row in
+                    PendingFile(
+                        id: row["id"], path: row["path"], ext: row["ext"],
+                        kind: FileKind(rawValue: row["kind"]) ?? .other, size: row["size"], mtime: row["mtime"]
+                    )
+                }
             }
+            return files
         }
     }
 
     func pendingCount() throws -> Int {
-        try pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE contentState = 0") ?? 0 }
+        try pool.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT (SELECT count(*) FROM file WHERE contentState = 0) + (SELECT count(*) FROM file WHERE contentState = 6)
+                """) ?? 0
+        }
     }
 
     /// Writes extraction results. A result is dropped if the file changed since it was read
-    /// (its mtime no longer matches), leaving it pending for the next pass.
+    /// (its mtime no longer matches), leaving it pending for the next pass. A stale file that no
+    /// longer yields text loses its old text through the invalidation trigger.
     func store(_ results: [ExtractionResult]) throws {
         try pool.write { db in
             let update = try db.cachedStatement(sql: """
-                UPDATE file SET contentState = ?, embedState = 0 WHERE id = ? AND mtime = ? AND contentState = 0
+                UPDATE file SET contentState = ?, embedState = 0 WHERE id = ? AND mtime = ? AND contentState IN (0, 6)
                 """)
             let deleteContent = try db.cachedStatement(sql: "DELETE FROM content_fts WHERE rowid = ?")
             let insertContent = try db.cachedStatement(sql: "INSERT INTO content_fts(rowid, body) VALUES (?, ?)")
@@ -168,11 +180,16 @@ extension IndexDatabase {
         }
     }
 
-    /// Resets eligible files (indexed, skipped or failed) to pending after extraction settings
-    /// changed; `kinds` limits it to the affected formats. Excluded and cloud-only files stay put.
+    /// Queues eligible files to be read again after extraction settings changed; `kinds` limits
+    /// it to the affected formats. Indexed files become stale, keeping their text searchable
+    /// until they are read again; skipped and failed ones become pending. Excluded, cloud-only
+    /// and link entries stay put.
     public func requeueContent(kinds: Set<FileKind>? = nil) throws {
         try pool.write { db in
-            var sql = "UPDATE file SET contentState = 0 WHERE contentState IN (1, 2, 3) AND isDir = 0 AND size > 0"
+            var sql = """
+                UPDATE file SET contentState = CASE contentState WHEN 1 THEN 6 ELSE 0 END
+                WHERE contentState IN (1, 2, 3) AND isDir = 0 AND size > 0
+                """
             if let kinds {
                 guard !kinds.isEmpty else { return }
                 sql += " AND kind IN (\(kinds.map { "'\($0.rawValue)'" }.sorted().joined(separator: ",")))"
@@ -223,7 +240,7 @@ extension IndexDatabase {
         try pool.read { db in
             try Int.fetchOne(db, sql: """
                 SELECT count(*) FROM file f JOIN dir d ON d.id = f.dirId
-                WHERE f.contentState = 1 AND f.kind IN ('document', 'pdf', 'text', 'image')
+                WHERE f.contentState IN (1, 6) AND f.kind IN ('document', 'pdf', 'text', 'image')
                   AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'
                 """, arguments: [home + "/Library", home + "/Library/", home + "/Library0"]) ?? 0
         }

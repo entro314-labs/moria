@@ -159,8 +159,9 @@ public struct RegexSearcher: Sendable {
                     let candidates = try await database.pool.read { db in
                         try Row.fetchAll(db, sql: """
                             SELECT f.id, \(IndexDatabase.pathSQL) AS path FROM file f JOIN dir d ON d.id = f.dirId
-                            WHERE ((f.kind IN ('text', 'code') AND f.isCloudOnly = 0 AND f.size BETWEEN 1 AND ?)
-                                   OR (f.kind = 'other' AND f.contentState = 1))
+                            WHERE ((f.kind IN ('text', 'code') AND f.isCloudOnly = 0 AND f.contentState != 7
+                                    AND f.size BETWEEN 1 AND ?)
+                                   OR (f.kind = 'other' AND f.contentState IN (1, 6)))
                               AND \(filter.clause)
                             ORDER BY f.mtime DESC
                             """, arguments: [Self.maxRipgrepFileBytes] + filter.arguments).map { (id: $0["id"] as Int64, path: $0["path"] as String) }

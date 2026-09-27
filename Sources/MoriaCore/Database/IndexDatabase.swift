@@ -15,6 +15,11 @@ public enum ContentState: Int, Sendable, Codable {
     case cloudOnly = 4
     /// In a content-excluded location (settings): indexed by name only.
     case excluded = 5
+    /// Indexed text kept searchable while the file waits to be read again because extraction
+    /// settings changed (the file itself did not).
+    case stale = 6
+    /// A symbolic link: indexed by name only. Its target is read where it lives, if at all.
+    case link = 7
 }
 
 /// The on-disk index: file metadata, filename and content full-text tables, embeddings and settings.
@@ -138,6 +143,20 @@ public final class IndexDatabase: Sendable {
                 ANALYZE;
                 """)
         }
+        // Stale content (6): re-reading after a settings change keeps the old text searchable,
+        // so the invalidation trigger treats 1 and 6 alike.
+        migrator.registerMigration("v3-stale-content") { db in
+            try db.execute(sql: """
+                DROP TRIGGER file_content_invalidated;
+                CREATE TRIGGER file_content_invalidated AFTER UPDATE OF contentState ON file
+                WHEN old.contentState IN (1, 6) AND new.contentState NOT IN (1, 6) BEGIN
+                    DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM doc_text WHERE fileId = old.id;
+                    DELETE FROM chunk_vec WHERE fileId = old.id;
+                END;
+                CREATE INDEX file_stale ON file(mtime) WHERE contentState = 6;
+                """)
+        }
         return migrator
     }
 
@@ -192,8 +211,8 @@ public final class IndexDatabase: Sendable {
                 SELECT
                     COALESCE(SUM(isDir = 0), 0) AS files,
                     COALESCE(SUM(isDir = 1), 0) AS folders,
-                    COALESCE(SUM(contentState = 1), 0) AS indexed,
-                    COALESCE(SUM(contentState = 0), 0) AS pending,
+                    COALESCE(SUM(contentState IN (1, 6)), 0) AS indexed,
+                    COALESCE(SUM(contentState IN (0, 6)), 0) AS pending,
                     COALESCE(SUM(isCloudOnly = 1), 0) AS cloud,
                     COALESCE(SUM(contentState = 5), 0) AS namesOnly,
                     COALESCE(SUM(contentState = 3), 0) AS failed
