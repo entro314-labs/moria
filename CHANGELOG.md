@@ -10,5 +10,6 @@
 - Regex search over names, contents and extracted document text, powered by a bundled ripgrep.
 - Live updates from filesystem events, resuming where Moria left off after a restart.
 - Optional semantic search ("Meaning") and plain-language requests ("Ask") using Apple's on-device models, off by default.
-- Mac app: filter sidebar, sortable results with highlighted excerpts, Quick Look preview inspector, quick search panel on a global shortcut, menu bar item, and settings.
-- `moria` command-line tool sharing the app's index: `index`, `watch`, `search` (`--regex`, `--semantic`, `--ask`, `--json`), `stats`, `config`.
+- Mac app: search modes (Everything, Names, Contents, Regex, Ask), a filter bar with editable chips and kind facets, a home screen of recently changed files and collections, saved searches, sortable results that show why each file matched, a preview/info inspector with match navigation, a ⌘K action palette, and a glass quick-search panel on a global shortcut.
+- Full menus and shortcuts, Open With, Move to Trash, Export Results (CSV), Services for text and Finder folders, `moria://` links, Dock and menu bar menus, Help window, pause/rescan/rebuild indexing, and settings for locations, contents, intelligence and the index.
+- `moria` command-line tool sharing the app's index: `index`, `watch`, `search` (`--regex`, `--semantic`, `--ask`, `--json`, `--show`), `stats`, `config`.
