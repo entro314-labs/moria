@@ -234,7 +234,9 @@ private struct IndexSettings: View {
                     LabeledContent("Folders", value: stats.folders.formatted())
                     LabeledContent("Contents indexed", value: stats.contentIndexed.formatted())
                     LabeledContent("Waiting to be read", value: stats.contentPending.formatted())
+                    LabeledContent("Names only (Contents settings)", value: stats.namesOnly.formatted())
                     LabeledContent("Cloud-only (names only)", value: stats.cloudOnly.formatted())
+                    LabeledContent("Couldn't be read", value: stats.failed.formatted())
                     LabeledContent("Index size", value: ByteCountFormatter.string(fromByteCount: stats.databaseBytes, countStyle: .file))
                 }
                 if let date = app.progress.lastScanDate {

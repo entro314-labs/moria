@@ -218,7 +218,8 @@ struct Stats: AsyncParsableCommand {
         let size = ByteCountFormatter.string(fromByteCount: stats.databaseBytes, countStyle: .file)
         return """
             files: \(stats.files)  folders: \(stats.folders)  cloud-only: \(stats.cloudOnly)
-            content indexed: \(stats.contentIndexed)  pending: \(stats.contentPending)  embedded chunks: \(stats.embeddedChunks)
+            content indexed: \(stats.contentIndexed)  pending: \(stats.contentPending)  names only: \(stats.namesOnly)  unreadable: \(stats.failed)
+            embedded chunks: \(stats.embeddedChunks)
             database: \(size)
             """
     }
