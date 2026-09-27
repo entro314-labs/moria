@@ -247,15 +247,16 @@ extension IndexDatabase {
     }
 
     /// Replaces the chunk vectors of each file and marks it embedded (1) or not embeddable (2).
-    func storeEmbeddings(_ items: [(id: Int64, chunks: [[Float]])]) throws {
+    /// Chunks keep their position in the document so the closest passage can be shown.
+    func storeEmbeddings(_ items: [(id: Int64, chunks: [(chunk: Int, vector: [Float])])]) throws {
         try pool.write { db in
             let delete = try db.cachedStatement(sql: "DELETE FROM chunk_vec WHERE fileId = ?")
             let insert = try db.cachedStatement(sql: "INSERT INTO chunk_vec(fileId, chunk, vec) VALUES (?, ?, ?)")
             let mark = try db.cachedStatement(sql: "UPDATE file SET embedState = ? WHERE id = ?")
             for item in items {
                 try delete.execute(arguments: [item.id])
-                for (index, vector) in item.chunks.enumerated() {
-                    try insert.execute(arguments: [item.id, index, VectorCodec.encode(vector)])
+                for (chunk, vector) in item.chunks {
+                    try insert.execute(arguments: [item.id, chunk, VectorCodec.encode(vector)])
                 }
                 try mark.execute(arguments: [item.chunks.isEmpty ? 2 : 1, item.id])
             }

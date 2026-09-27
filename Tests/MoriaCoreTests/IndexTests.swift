@@ -348,14 +348,15 @@ struct IndexTests {
             let norm = sqrt(values.reduce(0) { $0 + $1 * $1 })
             return values.map { $0 / norm }
         }
+        // Chunk positions are kept as given: a skipped chunk (unsupported language) leaves a gap.
         try database.storeEmbeddings([
-            (ids[0], [unit([1, 0, 0, 0]), unit([0, 1, 0, 0])]),
-            (ids[1], [unit([0.6, 0.8, 0, 0])]),
+            (ids[0], [(0, unit([1, 0, 0, 0])), (2, unit([0, 1, 0, 0]))]),
+            (ids[1], [(0, unit([0.6, 0.8, 0, 0]))]),
         ])
         let index = try VectorIndex(database: database)
         let ranking = index.search(unit([0, 1, 0, 0]), limit: 5)
         #expect(ranking.hits.map(\.fileID) == [ids[0], ids[1]])
-        #expect(ranking.hits[0].chunk == 1)
+        #expect(ranking.hits[0].chunk == 2)
         #expect(abs(ranking.hits[0].score - 1) < 0.01)
         #expect(abs(ranking.hits[1].score - 0.8) < 0.01)
         // Only the clear winner stands out (0.8 is within reach of the best but not of 2σ).

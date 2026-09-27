@@ -52,10 +52,14 @@ public actor Embedder {
         return try embed(text, model: model)
     }
 
-    /// Embeds up to `maxChunksPerDocument` chunks of a document; empty if none are Latin-script.
-    public func embedDocument(_ text: String) async throws -> [[Float]] {
+    /// Embeds up to `maxChunksPerDocument` chunks of a document, each with its position in
+    /// `chunks(of:)` (chunks in unsupported languages are skipped, so positions can have gaps);
+    /// empty if none are Latin-script.
+    public func embedDocument(_ text: String) async throws -> [(chunk: Int, vector: [Float])] {
         let model = try await loadedModel()
-        return try Self.chunks(of: text).compactMap { try embed($0, model: model) }
+        return try Self.chunks(of: text).enumerated().compactMap { index, chunk in
+            try embed(chunk, model: model).map { (index, $0) }
+        }
     }
 
     private func embed(_ text: String, model: NLContextualEmbedding) throws -> [Float]? {

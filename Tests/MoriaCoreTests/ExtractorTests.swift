@@ -34,6 +34,14 @@ struct ExtractorTests {
         #expect(ContentExtractor.decodeText(Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0x01])) == nil)
     }
 
+    @Test func smallTextLimitsReadOnlyThatMuch() throws {
+        var settings = MoriaSettings.defaults()
+        settings.maxContentKilobytes = 1  // the CLI accepts any positive number; 4 KB minimum
+        let extractor = ContentExtractor(settings: settings, ocrLimiter: AsyncLimiter(limit: 1))
+        let url = try write("long.txt", Data(repeating: UInt8(ascii: "a"), count: 20000))
+        #expect(try extractor.readText(url)?.utf8.count == 4096)
+    }
+
     @Test func truncatesOnCharacterBoundary() {
         let text = String(repeating: "α", count: 10)  // 2 bytes each
         #expect(ContentExtractor.truncate(text, toUTF8Bytes: 5) == "αα")

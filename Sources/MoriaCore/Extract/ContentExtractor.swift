@@ -67,9 +67,11 @@ struct ContentExtractor: Sendable {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         // Sniff the head first so binary files cost one small read.
-        guard var data = try handle.read(upToCount: 8192), !data.isEmpty else { return nil }
+        let head = min(8192, maxBytes)
+        guard var data = try handle.read(upToCount: head), !data.isEmpty else { return nil }
         if Self.looksBinary(data) { return nil }
-        if data.count == 8192, let rest = try handle.read(upToCount: maxBytes - 8192) {
+        // `read(upToCount:)` with a count of 0 or less reads to the end of the file.
+        if data.count == head, maxBytes > head, let rest = try handle.read(upToCount: maxBytes - head) {
             data.append(rest)
         }
         return Self.decodeText(data)

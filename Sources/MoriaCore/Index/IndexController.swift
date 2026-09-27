@@ -485,14 +485,14 @@ public actor IndexController {
         guard !batch.isEmpty else { return false }
         publish(phase: .embedding)
         let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter)
-        var vectors: [(id: Int64, chunks: [[Float]])] = []
+        var vectors: [(id: Int64, chunks: [(chunk: Int, vector: [Float])])] = []
         for file in batch {
             try Task.checkCancellation()
             // Documents keep their extracted text; plain text is re-read from the file.
             let text = try ContentExtractor.keepsExtractedText(file.kind)
                 ? database.storedText(fileID: file.id)
                 : extractor.readText(URL(fileURLWithPath: file.path))
-            let chunks = if let text { try await embedder.embedDocument(text) } else { [[Float]]() }
+            let chunks = if let text { try await embedder.embedDocument(text) } else { [(chunk: Int, vector: [Float])]() }
             vectors.append((file.id, chunks))
         }
         try database.storeEmbeddings(vectors)
