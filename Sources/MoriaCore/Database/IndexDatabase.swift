@@ -126,6 +126,18 @@ public final class IndexDatabase: Sendable {
                 END;
                 """)
         }
+        // Filter indexes. Without them a filter such as `kind:pdf modified:<30d` walks every
+        // recently modified file (over a million on a developer's Mac) to find a few PDFs.
+        migrator.registerMigration("v2-filter-indexes") { db in
+            try db.execute(sql: """
+                CREATE INDEX file_kind_mtime ON file(kind, mtime);
+                CREATE INDEX file_ext_mtime ON file(ext, mtime);
+                CREATE INDEX file_size ON file(size);
+                -- NOCASE lets LIKE 'ab%' (short queries, name:foo*) and name = ? COLLATE NOCASE use it.
+                CREATE INDEX file_name_nocase ON file(name COLLATE NOCASE);
+                ANALYZE;
+                """)
+        }
         return migrator
     }
 

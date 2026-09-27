@@ -96,7 +96,7 @@ public final class SearchEngine: Sendable {
         let short = folded.filter { $0.count < 3 }
         var filter = FilterSQL(query: query, home: home)
         for word in short {
-            filter.add("f.name LIKE ? ESCAPE '\\'", Self.escapeLike(word) + "%")
+            filter.addNamePrefix(word)
         }
         if long.isEmpty {
             // Prefix match without ORDER BY, so the scan stops at the first `limit` hits
@@ -117,7 +117,8 @@ public final class SearchEngine: Sendable {
 
     private func contentMatches(_ query: SearchQuery, db: Database, limit: Int) throws -> [SearchResult] {
         guard query.nameTerms.isEmpty else { return [] }
-        var parts = (query.terms + query.contentTerms).compactMap(Self.prefixTerm)
+        // A single letter says nothing about contents and matches most documents.
+        var parts = (query.terms.filter { $0.count > 1 } + query.contentTerms).compactMap(Self.prefixTerm)
         parts += query.phrases.map(Self.quote)
         guard !parts.isEmpty else { return [] }
         let filter = FilterSQL(query: query, home: home)
@@ -148,10 +149,30 @@ public final class SearchEngine: Sendable {
         return ranking.hits.filter { $0.score >= cutoff }
     }
 
+    /// Filter-only searches, newest first.
+    ///
+    /// Selective filters (a kind, a size range, a name prefix) are fastest through their own
+    /// index, but `ORDER BY mtime` makes SQLite walk the date index instead, which can mean
+    /// millions of rows for a handful of hits. So candidates are collected without ordering
+    /// first; only when there are many does the date-ordered query (which then stops early) run.
     private func filterOnly(_ query: SearchQuery, limit: Int) throws -> [SearchResult] {
         let filter = FilterSQL(query: query, home: home)
+        let candidateLimit = 20000
         return try database.pool.read { db in
-            try Row.fetchAll(db, sql: """
+            let candidates = try Row.fetchAll(db, sql: """
+                SELECT f.id, f.mtime FROM file f JOIN dir d ON d.id = f.dirId WHERE \(filter.clause) LIMIT ?
+                """, arguments: filter.arguments + [candidateLimit])
+            if candidates.count < candidateLimit {
+                let newest = candidates.sorted { ($0["mtime"] as Double) > ($1["mtime"] as Double) }
+                    .prefix(limit).map { $0["id"] as Int64 }
+                guard !newest.isEmpty else { return [] }
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT \(Self.columns) FROM file f JOIN dir d ON d.id = f.dirId
+                    WHERE f.id IN (\(newest.map(String.init).joined(separator: ",")))
+                    """)
+                return rows.map { Self.result(from: $0) }.sorted { $0.modified > $1.modified }
+            }
+            return try Row.fetchAll(db, sql: """
                 SELECT \(Self.columns) FROM file f JOIN dir d ON d.id = f.dirId
                 WHERE \(filter.clause) ORDER BY f.mtime DESC LIMIT ?
                 """, arguments: filter.arguments + [limit]).map { Self.result(from: $0) }
@@ -327,11 +348,13 @@ public final class SearchEngine: Sendable {
         "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
-    /// A prefix query for one word (`"invo"*`), so results appear while typing.
+    /// A prefix query for one word (`"invo"*`), so results appear while typing. Words under
+    /// three characters match whole words only: a prefix like `"ab"*` expands to a large part
+    /// of the vocabulary and makes every keystroke slow on a big index.
     static func prefixTerm(_ term: String) -> String? {
         let trimmed = term.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        return quote(trimmed) + "*"
+        return trimmed.count < 3 ? quote(trimmed) : quote(trimmed) + "*"
     }
 
     static func escapeLike(_ text: String) -> String {
@@ -361,7 +384,7 @@ struct FilterSQL {
         }
         for pattern in query.namePatterns {
             switch pattern {
-            case let .prefix(text): add("f.name LIKE ? ESCAPE '\\'", SearchEngine.escapeLike(text) + "%")
+            case let .prefix(text): addNamePrefix(text)
             case let .suffix(text): add("f.name LIKE ? ESCAPE '\\'", "%" + SearchEngine.escapeLike(text))
             case let .exact(text): add("f.name = ? COLLATE NOCASE", text)
             case let .regex(pattern): add("moria_regexp(?, f.name)", pattern)
@@ -399,6 +422,13 @@ struct FilterSQL {
 
     var clause: String {
         conditions.isEmpty ? "1" : conditions.joined(separator: " AND ")
+    }
+
+    /// Case-insensitive name prefix, written as a range on the NOCASE name index (Apple's
+    /// SQLite doesn't turn `LIKE 'ab%'` into an index seek), with LIKE to keep it exact.
+    mutating func addNamePrefix(_ prefix: String) {
+        add("f.name >= ? COLLATE NOCASE AND f.name < ? COLLATE NOCASE AND f.name LIKE ? ESCAPE '\\'",
+            values: [prefix, prefix + "\u{10FFFF}", SearchEngine.escapeLike(prefix) + "%"])
     }
 
     mutating func add(_ condition: String, _ value: some DatabaseValueConvertible) {
