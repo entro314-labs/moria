@@ -344,7 +344,9 @@ public actor IndexController {
 
     /// Re-stats changed paths: upserts what exists, deletes what's gone, re-crawls subtrees
     /// flagged by FSEvents. Idempotent, so duplicated or reordered events are harmless.
-    func apply(_ changes: [FileChange]) throws {
+    /// Also used by the app after it changes files itself (Move to Trash), since the event
+    /// stream ignores this process's own changes.
+    public func apply(_ changes: [FileChange]) throws {
         let rules = CrawlRules(settings: settings)
         var crawler = Crawler(rules: rules)
         var merged: [String: Bool] = [:]
@@ -352,13 +354,14 @@ public actor IndexController {
         var writer = try MetadataWriter(generation: currentGeneration, maxFileBytes: maxFileBytes)
         var metas: [FileMeta] = []
         for (path, rescan) in merged.sorted(by: { $0.key < $1.key }) {
-            guard isUnderRoots(path), !rules.isExcludedAnywhere(path: path),
-                  !isInsideOpaquePackage(path, crawler: &crawler) else { continue }
+            guard let root = root(containing: path), !rules.isExcludedAnywhere(path: path, below: root),
+                  !isInsideOpaquePackage(path, below: root, crawler: &crawler) else { continue }
             guard let meta = crawler.meta(forPath: path) else {
                 try database.deleteSubtree(path)
                 continue
             }
-            if rescan, meta.isDir, !crawler.isOpaquePackage(path: path) {
+            // A location is crawled even when it is a package (a photo library added on purpose).
+            if rescan, meta.isDir, path == root || !crawler.isOpaquePackage(path: path) {
                 let subtreeGeneration = try nextGeneration()
                 var subtreeWriter = MetadataWriter(generation: subtreeGeneration, maxFileBytes: maxFileBytes)
                 try crawler.crawl(root: path) { batch in
@@ -374,13 +377,16 @@ public actor IndexController {
         }
     }
 
-    private func isUnderRoots(_ path: String) -> Bool {
-        settings.roots.contains { path == $0 || path.hasPrefix($0 == "/" ? "/" : $0 + "/") }
+    /// The location that contains `path`, or is it.
+    private func root(containing path: String) -> String? {
+        settings.roots.first { path == $0 || path.hasPrefix($0 == "/" ? "/" : $0 + "/") }
     }
 
-    private func isInsideOpaquePackage(_ path: String, crawler: inout Crawler) -> Bool {
+    /// Whether a folder between `root` and `path` is a package indexed as one item. The root
+    /// itself doesn't count: the crawl always descends into a location.
+    private func isInsideOpaquePackage(_ path: String, below root: String, crawler: inout Crawler) -> Bool {
         var ancestor = (path as NSString).deletingLastPathComponent
-        while ancestor.count > 1, isUnderRoots(ancestor) {
+        while ancestor.count > root.count {
             if crawler.isOpaquePackage(path: ancestor) { return true }
             ancestor = (ancestor as NSString).deletingLastPathComponent
         }

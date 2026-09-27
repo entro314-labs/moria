@@ -204,6 +204,31 @@ struct IndexTests {
         #expect(hits.isEmpty)
     }
 
+    @Test func packageLocationsAndLocationsUnderHiddenFoldersGetLiveUpdates() async throws {
+        // A package added as a location is crawled and updated like a folder.
+        let package = root.appending(path: "Tools.app")
+        let (database, controller) = try await TestSupport.makeIndex(root: package)
+        try await controller.indexNow(full: true)
+        try Data("zanzibar release notes".utf8).write(to: package.appending(path: "Contents/notes.txt"))
+        try await controller.apply([FileChange(path: package.appending(path: "Contents/notes.txt").path, rescanSubtree: false)])
+        try await controller.indexNow(full: false)
+        let engine = SearchEngine(database: database, home: root.path)
+        #expect(try await engine.search(QueryParser().parse("zanzibar")).map(\.name) == ["notes.txt"])
+
+        // Folders above a location don't exclude it, as in the crawl.
+        let project = root.appending(path: ".config/project")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let (hiddenDatabase, hiddenController) = try await TestSupport.makeIndex(root: project)
+        var settings = await hiddenController.settings
+        settings.includeHidden = false
+        try await hiddenController.updateSettings(settings)
+        try await hiddenController.indexNow(full: true)
+        try Data("quetzal".utf8).write(to: project.appending(path: "bird.txt"))
+        try await hiddenController.apply([FileChange(path: project.appending(path: "bird.txt").path, rescanSubtree: false)])
+        let hiddenEngine = SearchEngine(database: hiddenDatabase, home: root.path)
+        #expect(try await hiddenEngine.search(QueryParser().parse("name:bird")).map(\.name) == ["bird.txt"])
+    }
+
     @Test func cancelledScanKeepsTheIndex() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

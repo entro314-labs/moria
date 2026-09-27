@@ -60,10 +60,11 @@ struct CrawlRules: Sendable {
         excludedNames.contains(name) || excludedPaths.contains(path)
     }
 
-    /// True when `path` is inside (or equal to) an excluded path, or has an excluded name component.
-    func isExcludedAnywhere(path: String) -> Bool {
+    /// True when `path` is inside (or equal to) an excluded path, or has an excluded name
+    /// component, below `root`. Folders above the location don't count, as in the crawl.
+    func isExcludedAnywhere(path: String, below root: String) -> Bool {
         var current = path
-        while current.count > 1 {
+        while current.count > root.count {
             let name = (current as NSString).lastPathComponent
             if isExcluded(path: current, name: name) { return true }
             if !includeHidden, name.hasPrefix(".") { return true }
