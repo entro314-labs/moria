@@ -1,0 +1,170 @@
+import Foundation
+import GRDB
+
+/// Extraction state of a file's content, stored in `file.contentState`.
+public enum ContentState: Int, Sendable, Codable {
+    /// Waiting for extraction.
+    case pending = 0
+    /// Text is in `content_fts`.
+    case indexed = 1
+    /// Not a text-bearing format, too large, or empty.
+    case none = 2
+    /// Extraction threw; retried when the file's mtime changes.
+    case failed = 3
+    /// Cloud placeholder that is not downloaded; content is never fetched.
+    case cloudOnly = 4
+}
+
+/// The on-disk index: file metadata, filename and content full-text tables, embeddings and settings.
+///
+/// Uses a WAL `DatabasePool` so searches run concurrently with indexing, and the app and
+/// CLI can share one file.
+public final class IndexDatabase: Sendable {
+    public let pool: DatabasePool
+    public let url: URL
+
+    /// `~/Library/Application Support/Moria/index.sqlite`
+    public static var defaultURL: URL {
+        URL.applicationSupportDirectory
+            .appending(path: "Moria", directoryHint: .isDirectory)
+            .appending(path: "index.sqlite")
+    }
+
+    public init(url: URL = IndexDatabase.defaultURL) throws {
+        self.url = url
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var config = Configuration()
+        config.prepareDatabase { db in
+            db.add(tokenizer: FoldingTokenizer.self)
+            try db.execute(sql: "PRAGMA synchronous = NORMAL; PRAGMA journal_size_limit = 67108864")
+        }
+        pool = try DatabasePool(path: url.path, configuration: config)
+        try Self.migrator.migrate(pool)
+    }
+
+    static var migrator: DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("v1") { db in
+            try db.execute(sql: """
+                CREATE TABLE file (
+                    id INTEGER PRIMARY KEY,
+                    path TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    nameKey TEXT NOT NULL,
+                    ext TEXT NOT NULL,
+                    parent TEXT NOT NULL,
+                    isDir INTEGER NOT NULL,
+                    size INTEGER NOT NULL,
+                    mtime REAL NOT NULL,
+                    btime REAL NOT NULL,
+                    kind TEXT NOT NULL,
+                    isHidden INTEGER NOT NULL,
+                    isCloudOnly INTEGER NOT NULL,
+                    contentState INTEGER NOT NULL,
+                    embedState INTEGER NOT NULL DEFAULT 0,
+                    seen INTEGER NOT NULL
+                );
+                CREATE INDEX file_mtime ON file(mtime);
+                CREATE INDEX file_size ON file(size);
+                CREATE INDEX file_ext ON file(ext);
+                CREATE INDEX file_kind ON file(kind);
+                CREATE INDEX file_pending ON file(contentState, mtime);
+                CREATE INDEX file_embed_pending ON file(embedState, contentState);
+
+                CREATE VIRTUAL TABLE name_fts USING fts5(
+                    nameKey, content='file', content_rowid='id', tokenize='trigram'
+                );
+                CREATE VIRTUAL TABLE content_fts USING fts5(body, tokenize='moria_fold');
+                CREATE TABLE chunk_vec (
+                    fileId INTEGER NOT NULL,
+                    chunk INTEGER NOT NULL,
+                    vec BLOB NOT NULL,
+                    PRIMARY KEY (fileId, chunk)
+                ) WITHOUT ROWID;
+                CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+                CREATE TRIGGER file_ai AFTER INSERT ON file BEGIN
+                    INSERT INTO name_fts(rowid, nameKey) VALUES (new.id, new.nameKey);
+                END;
+                CREATE TRIGGER file_ad AFTER DELETE ON file BEGIN
+                    INSERT INTO name_fts(name_fts, rowid, nameKey) VALUES ('delete', old.id, old.nameKey);
+                    DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM chunk_vec WHERE fileId = old.id;
+                END;
+                -- Content is dropped as soon as a file leaves the indexed state (modified, became
+                -- cloud-only, ...) so results never show text that no longer matches the file.
+                CREATE TRIGGER file_content_invalidated AFTER UPDATE OF contentState ON file
+                WHEN old.contentState = 1 AND new.contentState != 1 BEGIN
+                    DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM chunk_vec WHERE fileId = old.id;
+                END;
+                """)
+        }
+        return migrator
+    }
+
+    // MARK: - Meta
+
+    public func meta(_ key: String) throws -> String? {
+        try pool.read { db in try String.fetchOne(db, sql: "SELECT value FROM meta WHERE key = ?", arguments: [key]) }
+    }
+
+    public func setMeta(_ key: String, _ value: String?) throws {
+        try pool.write { db in
+            if let value {
+                try db.execute(sql: "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", arguments: [key, value])
+            } else {
+                try db.execute(sql: "DELETE FROM meta WHERE key = ?", arguments: [key])
+            }
+        }
+    }
+
+    public func loadSettings() throws -> MoriaSettings {
+        guard let json = try meta("settings") else { return .defaults() }
+        return try JSONDecoder().decode(MoriaSettings.self, from: Data(json.utf8))
+    }
+
+    public func saveSettings(_ settings: MoriaSettings) throws {
+        let data = try JSONEncoder().encode(settings)
+        try setMeta("settings", String(decoding: data, as: UTF8.self))
+    }
+
+    // MARK: - Stats
+
+    public struct Stats: Sendable, Equatable {
+        public var files: Int
+        public var folders: Int
+        public var contentIndexed: Int
+        public var contentPending: Int
+        public var cloudOnly: Int
+        public var embeddedChunks: Int
+        public var databaseBytes: Int64
+    }
+
+    public func stats() throws -> Stats {
+        let counts = try pool.read { db in
+            let row = try Row.fetchOne(db, sql: """
+                SELECT
+                    COALESCE(SUM(isDir = 0), 0) AS files,
+                    COALESCE(SUM(isDir = 1), 0) AS folders,
+                    COALESCE(SUM(contentState = 1), 0) AS indexed,
+                    COALESCE(SUM(contentState = 0), 0) AS pending,
+                    COALESCE(SUM(isCloudOnly = 1), 0) AS cloud
+                FROM file
+                """)!
+            let chunks = try Int.fetchOne(db, sql: "SELECT count(*) FROM chunk_vec") ?? 0
+            return (row, chunks)
+        }
+        let dir = url.deletingLastPathComponent()
+        let bytes = ["", "-wal", "-shm"].reduce(Int64(0)) { sum, suffix in
+            let path = dir.appending(path: url.lastPathComponent + suffix).path
+            let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+            return sum + size
+        }
+        return Stats(
+            files: counts.0["files"], folders: counts.0["folders"],
+            contentIndexed: counts.0["indexed"], contentPending: counts.0["pending"],
+            cloudOnly: counts.0["cloud"], embeddedChunks: counts.1, databaseBytes: bytes
+        )
+    }
+}
