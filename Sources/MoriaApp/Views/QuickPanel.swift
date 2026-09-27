@@ -11,7 +11,7 @@ final class QuickPanelController: NSObject, NSWindowDelegate {
     private let panel: QuickPanelWindow
     private let model: SearchModel
 
-    init(app: AppModel, openInMain: @escaping @MainActor (String) -> Void) {
+    init(app: AppModel, openInMain: @escaping @MainActor (SearchRequest) -> Void) {
         model = SearchModel(app: app, limit: 30)
         panel = QuickPanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 460),
@@ -34,9 +34,9 @@ final class QuickPanelController: NSObject, NSWindowDelegate {
             guard let self else { return }
             if model.text.isEmpty { close() } else { model.text = "" }
         }
-        let root = QuickPanelView(model: model, close: { [weak self] in self?.close() }, openInMain: { [weak self] text in
+        let root = QuickPanelView(model: model, close: { [weak self] in self?.close() }, openInMain: { [weak self] request in
             self?.close()
-            openInMain(text)
+            openInMain(request)
         })
         .environment(app)
         panel.contentView = NSHostingView(rootView: root)
@@ -83,7 +83,7 @@ extension Notification.Name {
 struct QuickPanelView: View {
     @Bindable var model: SearchModel
     let close: () -> Void
-    let openInMain: (String) -> Void
+    let openInMain: (SearchRequest) -> Void
     @FocusState private var focused: Bool
 
     private var selectedIndex: Int? {
@@ -124,14 +124,18 @@ struct QuickPanelView: View {
                             ForEach(model.items) { item in
                                 QuickRow(item: item, snippet: model.details[item.id]?.snippet, selected: model.selection.contains(item.id))
                                     .id(item.id)
-                                    .onTapGesture(count: 2) { FileActions.open([item.result.url]); close() }
+                                    .onTapGesture(count: 2) {
+                                        model.selection = [item.id]
+                                        model.openSelection()
+                                        close()
+                                    }
                                     .onTapGesture { model.selection = [item.id] }
                                     .onAppear { model.requestDetails(for: item) }
                             }
                         }
                         .padding(6)
                         if model.items.count == model.limit {
-                            Button("Show all results in Moria  ⌘O") { openInMain(model.text) }
+                            Button("Show all results in Moria  ⌘O") { openInMain(mainRequest) }
                                 .buttonStyle(.link)
                                 .padding(.bottom, 8)
                         }
@@ -162,9 +166,9 @@ struct QuickPanelView: View {
         .onKeyPress(keys: ["o", "r"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if press.characters == "o" {
-                openInMain(model.text)
-            } else if let item = model.selectedItems.first {
-                FileActions.reveal([item.result.url])
+                openInMain(mainRequest)
+            } else if !model.selectedItems.isEmpty {
+                model.revealSelection()
                 close()
             }
             return .handled
@@ -187,13 +191,18 @@ struct QuickPanelView: View {
         model.selection = [model.items[next].id]
     }
 
-    /// Return opens; ⌘Return shows in Finder.
+    /// The same search in the main window, in the same mode.
+    private var mainRequest: SearchRequest {
+        SearchRequest(text: model.text, scope: model.scope)
+    }
+
+    /// Return opens; ⌘Return shows in Finder. Both record the search in Recent Searches.
     private func openSelected() {
-        guard let item = model.selectedItems.first else { return }
+        guard !model.selectedItems.isEmpty else { return }
         if NSEvent.modifierFlags.contains(.command) {
-            FileActions.reveal([item.result.url])
+            model.revealSelection()
         } else {
-            FileActions.open([item.result.url])
+            model.openSelection()
         }
         close()
     }

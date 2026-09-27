@@ -11,6 +11,7 @@ struct CriteriaBuilderView: View {
     @Environment(AppModel.self) private var app
     @State private var rows: [Criterion] = []
     @State private var count: Int?
+    @State private var countFailed = false
     @State private var name = ""
     @State private var askingName = false
 
@@ -64,8 +65,9 @@ struct CriteriaBuilderView: View {
                     .keyboardShortcut(.cancelAction)
                 Button(editing == nil ? "Save…" : "Save Changes") {
                     if let editing {
+                        // The builder edits the text; the saved search's filters and mode stay.
                         app.save(SearchModel.SavedSearch(id: editing.id, name: editing.name, text: query,
-                                                         scope: editing.scope, filters: FilterState()))
+                                                         scope: editing.scope, filters: editing.filters))
                         dismiss()
                     } else {
                         name = ""
@@ -74,9 +76,16 @@ struct CriteriaBuilderView: View {
                 }
                 .disabled(query.isEmpty)
                 Button("Search") {
-                    model.mode = .everything
-                    model.filters = FilterState()
-                    model.text = query
+                    if let editing {
+                        // The edited search as it would be saved: its own mode and filters.
+                        model.apply(SearchModel.SavedSearch(id: editing.id, name: editing.name, text: query,
+                                                            scope: editing.scope, filters: editing.filters))
+                    } else {
+                        // Criteria are query text, not a pattern or a request; other modes and
+                        // the chosen filters stay.
+                        if model.mode == .regex || model.mode == .ask { model.mode = .everything }
+                        model.text = query
+                    }
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -94,7 +103,8 @@ struct CriteriaBuilderView: View {
         .alert("Save Search", isPresented: $askingName) {
             TextField("Name", text: $name)
             Button("Save") {
-                app.save(SearchModel.SavedSearch(name: name.isEmpty ? query : name, text: query, scope: .everything, filters: FilterState()))
+                let scope = model.scope == .regex ? .everything : model.scope
+                app.save(SearchModel.SavedSearch(name: name.isEmpty ? query : name, text: query, scope: scope, filters: model.filters))
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
@@ -102,17 +112,25 @@ struct CriteriaBuilderView: View {
     }
 
     private var countText: String {
+        if countFailed { return "Couldn't count matches" }
         guard let count else { return query.isEmpty ? "" : "Counting…" }
         return count >= 1000 ? "1,000+ matches" : "\(count.formatted()) match\(count == 1 ? "" : "es")"
     }
 
     private func updateCount() async {
+        countFailed = false
         guard !query.isEmpty else { count = nil; return }
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled else { return }
-        let result = try? await app.engine.search(QueryParser().parse(query), limit: 1000).count
-        guard !Task.isCancelled else { return }
-        withAnimation { count = result }
+        do {
+            let result = try await app.engine.search(QueryParser().parse(query), limit: 1000).count
+            guard !Task.isCancelled else { return }
+            withAnimation { count = result }
+        } catch {
+            guard !Task.isCancelled else { return }
+            count = nil
+            countFailed = true
+        }
     }
 }
 
@@ -231,7 +249,8 @@ private struct CriterionRow: View {
     }
 }
 
-/// A date picker bound to a `yyyy-MM-dd` string.
+/// A date picker bound to a `yyyy-MM-dd` string. A whole month or year (`2026-03`, `2025`,
+/// from typed queries) stays a text field, since a date picker can only show one day.
 private struct DateField: View {
     @Binding var text: String
 
@@ -243,12 +262,17 @@ private struct DateField: View {
     }()
 
     var body: some View {
-        DatePicker("Date", selection: Binding(
-            get: { Self.formatter.date(from: text) ?? Date() },
-            set: { text = Self.formatter.string(from: $0) }
-        ), displayedComponents: .date)
-        .labelsHidden()
-        .datePickerStyle(.field)
-        .onAppear { if text.isEmpty { text = Self.formatter.string(from: Date()) } }
+        if text.range(of: #"^\d{4}(-\d{2})?$"#, options: .regularExpression) != nil {
+            TextField("yyyy-MM", text: $text)
+                .frame(width: 90)
+        } else {
+            DatePicker("Date", selection: Binding(
+                get: { Self.formatter.date(from: text) ?? Date() },
+                set: { text = Self.formatter.string(from: $0) }
+            ), displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.field)
+            .onAppear { if text.isEmpty { text = Self.formatter.string(from: Date()) } }
+        }
     }
 }

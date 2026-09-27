@@ -76,8 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let app else { return }
-        quickPanel = QuickPanelController(app: app) { text in
-            Self.showSearch(text)
+        quickPanel = QuickPanelController(app: app) { request in
+            Self.showSearch(request.text, scope: request.scope)
         }
         app.showQuickPanel = { [weak self] in self?.quickPanel?.toggle() }
         NSApp.servicesProvider = self

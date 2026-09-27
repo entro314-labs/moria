@@ -193,9 +193,11 @@ final class SearchModel {
         scope = UserDefaults.standard.string(forKey: "defaultScope").flatMap(SearchScope.init) ?? .everything
     }
 
-    /// Shows a request from the quick panel, a link, a Service or the CLI.
+    /// Shows a request from the quick panel, a link, a Service or the CLI. The request is the
+    /// whole search: filters chosen earlier in this window don't narrow it.
     func show(_ request: SearchRequest) {
         askMode = false
+        filters = FilterState()
         if let scope = request.scope { self.scope = scope }
         if let text = request.text { self.text = text }
     }
