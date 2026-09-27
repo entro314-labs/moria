@@ -101,9 +101,12 @@ struct Search: AsyncParsableCommand {
     )
 
     @OptionGroup var database: DatabaseOption
-    @Argument(parsing: .captureForPassthrough, help: "The query.")
+    // Options may follow the query (`moria search "lease" --json`); tokens that aren't options,
+    // including exclusions such as `-draft` or `-kind:folder`, stay in the query. There are no
+    // short options, so an exclusion like `-lease` can't be read as a group of flags.
+    @Argument(parsing: .allUnrecognized, help: "The query.")
     var query: [String]
-    @Option(name: .shortAndLong, help: "Maximum results.")
+    @Option(help: "Maximum results.")
     var limit = 30
     @Flag(help: "Treat the query as a regular expression over file contents and names.")
     var regex = false
