@@ -17,6 +17,8 @@ public struct IndexProgress: Sendable, Equatable {
     public var unreadableDirectories = 0
     public var lastScanDate: Date?
     public var lastError: String?
+    /// Indexing is paused by the user; file changes are still collected and applied on resume.
+    public var isPaused = false
 
     public init() {}
 }
@@ -90,6 +92,22 @@ public actor IndexController {
         wake?.yield()
     }
 
+    /// Pauses or resumes background work. The current batch finishes first.
+    public func setPaused(_ paused: Bool) {
+        state.isPaused = paused
+        publish(phase: state.phase)
+        if !paused { wake?.yield() }
+    }
+
+    /// Deletes the whole index and rebuilds it from a full scan.
+    public func rebuild() throws {
+        try database.eraseIndex()
+        state.extractedFiles = 0
+        state.embeddedFiles = 0
+        fullScanRequested = true
+        wake?.yield()
+    }
+
     /// Runs a scan (full if never scanned or `full`), then extracts and embeds until nothing is
     /// pending. Used by the CLI; the app uses `start()`.
     public func indexNow(full: Bool) async throws {
@@ -151,7 +169,7 @@ public actor IndexController {
     // MARK: - Work loop
 
     private func drainWork() async {
-        while !Task.isCancelled {
+        while !Task.isCancelled, !state.isPaused {
             do {
                 if fullScanRequested {
                     fullScanRequested = false

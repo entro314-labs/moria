@@ -1,137 +1,323 @@
+import ImageIO
 import MoriaCore
+import PDFKit
 import Quartz
 import SwiftUI
+
+/// What the inspector shows: the preview, the details, or both stacked in a resizable split.
+enum InspectorLayout: String, CaseIterable, Identifiable {
+    case preview, both, info
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .preview: "Preview"
+        case .both: "Preview and Info"
+        case .info: "Info"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .preview: "eye"
+        case .both: "rectangle.split.1x2"
+        case .info: "info.circle"
+        }
+    }
+}
 
 /// Preview and details for the selected result.
 struct InspectorView: View {
     let model: SearchModel
+    @AppStorage("inspectorLayout") private var layout: InspectorLayout = .both
 
     var body: some View {
-        if let item = model.selectedItems.first {
-            VStack(spacing: 0) {
-                preview(item.result)
-                    .frame(minHeight: 220, maxHeight: .infinity)
-                Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        header(item.result)
-                        actions(item.result)
-                        matches(item)
-                        details(item.result)
+        Group {
+            if let item = model.selectedItems.first {
+                switch layout {
+                case .preview:
+                    PreviewPane(result: item.result)
+                case .info:
+                    InfoPane(model: model, item: item)
+                case .both:
+                    VSplitView {
+                        PreviewPane(result: item.result)
+                            .frame(minHeight: 160, idealHeight: 380)
+                        InfoPane(model: model, item: item)
+                            .frame(minHeight: 180)
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 360)
+            } else {
+                ContentUnavailableView("Nothing Selected", systemImage: "sidebar.trailing",
+                                       description: Text("Select a result to preview it and see why it matched."))
             }
-            .id(item.id)
-        } else {
-            ContentUnavailableView("No Selection", systemImage: "doc.text.magnifyingglass",
-                                   description: Text("Select a result to preview it."))
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Picker("Show", selection: $layout) {
+                    ForEach(InspectorLayout.allCases) { layout in
+                        Label(layout.title, systemImage: layout.symbol).tag(layout)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.iconOnly)
+                .help("Show the preview, the info, or both")
+            }
         }
     }
+}
 
-    @ViewBuilder
-    private func preview(_ result: SearchResult) -> some View {
-        if result.isCloudOnly {
-            // Quick Look runs in another process that would download the file.
-            ContentUnavailableView {
-                Label("In the Cloud", systemImage: "icloud")
-            } description: {
-                Text("This file isn't downloaded. Opening it downloads it.")
-            } actions: {
-                Button("Open") { FileActions.open([result.url]) }
+// MARK: - Preview
+
+private struct PreviewPane: View {
+    let result: SearchResult
+
+    var body: some View {
+        Group {
+            if result.isCloudOnly {
+                // Quick Look runs in another process that would download the file.
+                ContentUnavailableView {
+                    Label("In the Cloud", systemImage: "icloud")
+                } description: {
+                    Text("This file isn't downloaded. Opening it downloads it.")
+                } actions: {
+                    Button("Open") { FileActions.open([result.url]) }
+                }
+            } else {
+                QuickLookPreview(url: result.url)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(10)
             }
-        } else {
-            QuickLookPreview(url: result.url)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Info
+
+private struct InfoPane: View {
+    let model: SearchModel
+    let item: ResultItem
+    @State private var currentMatch = 0
+    @State private var facts: [(String, String)] = []
+
+    private var result: SearchResult { item.result }
+
+    /// Matching lines: from a regex search, or loaded match details.
+    private var lines: [(number: Int, text: String)] {
+        if !item.lines.isEmpty { return item.lines.map { ($0.number, $0.text) } }
+        return model.details[item.id]?.lines.map { ($0.number, $0.text) } ?? []
     }
 
-    private func header(_ result: SearchResult) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    actions
+                    matches(proxy)
+                    details
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .onChange(of: item.id) { currentMatch = 0 }
+        .task(id: item.id) { facts = await Self.facts(for: result) }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
             Image(nsImage: IconCache.icon(for: result))
                 .resizable()
-                .frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 3) {
+                .frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 4) {
                 Text(result.name)
                     .font(.headline)
                     .textSelection(.enabled)
                     .lineLimit(3)
-                Text(Display.parent(of: result.path))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-            }
-        }
-    }
-
-    private func actions(_ result: SearchResult) -> some View {
-        HStack(spacing: 8) {
-            Button("Open", systemImage: "arrow.up.forward.app") { FileActions.open([result.url]) }
-            Button("Show in Finder", systemImage: "folder") { FileActions.reveal([result.url]) }
-            Button("Copy Path", systemImage: "doc.on.clipboard") { FileActions.copyPaths([result.url]) }
-                .labelStyle(.iconOnly)
-                .help("Copy Path")
-        }
-        .controlSize(.small)
-    }
-
-    @ViewBuilder
-    private func matches(_ item: ResultItem) -> some View {
-        if !item.lines.isEmpty {
-            section("Matching Lines") {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(item.lines, id: \.self) { line in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("\(line.number)")
-                                .foregroundStyle(.tertiary)
-                                .frame(minWidth: 28, alignment: .trailing)
-                            Text(line.text.trimmingCharacters(in: .whitespaces))
-                                .textSelection(.enabled)
-                        }
-                        .font(.system(.caption, design: .monospaced))
+                PathBreadcrumb(path: (result.path as NSString).deletingLastPathComponent) { folder in
+                    model.filters.folder = folder
+                }
+                HStack(spacing: 4) {
+                    ForEach(MatchLabel.labels(for: item, details: model.details[item.id]), id: \.self) { label in
+                        Text(label.text)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color(nsColor: label.color))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Color(nsColor: label.color).opacity(0.14), in: Capsule())
                     }
                 }
             }
-        } else if let snippet = model.snippets[item.id] {
-            section(item.result.matchedMeaning && !item.result.matchedContent ? "Related Passage" : "Match") {
-                Text(AttributedString(Display.highlighted(snippet, font: .systemFont(ofSize: 12), color: .labelColor)))
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 6) {
+            Button("Open", systemImage: "arrow.up.forward.app") { FileActions.open([result.url]) }
+            Button("Show in Finder", systemImage: "folder") { FileActions.reveal([result.url]) }
+                .labelStyle(.iconOnly)
+                .help("Show in Finder (⌘R)")
+            ShareLink(item: result.url) { Label("Share", systemImage: "square.and.arrow.up") }
+                .labelStyle(.iconOnly)
+                .help("Share")
+            Menu {
+                Button("Copy Path") { FileActions.copyPaths([result.url]) }
+                Button("Copy File") { FileActions.copyFiles([result.url]) }
+                Button("Search in This Folder") { model.filters.folder = (result.path as NSString).deletingLastPathComponent }
+                Button("Open in Terminal") { FileActions.openTerminal(at: result.url) }
+            } label: {
+                Label("More", systemImage: "ellipsis")
+            }
+            .menuIndicator(.hidden)
+            .labelStyle(.iconOnly)
+            .fixedSize()
+            .help("More actions (⌘K)")
+        }
+        .buttonStyle(.glass)
+        .controlSize(.regular)
+    }
+
+    @ViewBuilder
+    private func matches(_ proxy: ScrollViewProxy) -> some View {
+        let lines = lines
+        if !lines.isEmpty {
+            let total = item.lines.isEmpty ? (model.details[item.id]?.matchCount ?? lines.count) : lines.count
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    sectionTitle(total == 1 ? "1 Match" : "\(total.formatted()) Matches")
+                    Spacer()
+                    // ⌘G / ⇧⌘G step through matches, as in HoudahSpot and Find.
+                    ControlGroup {
+                        Button("Previous Match", systemImage: "chevron.up") { step(-1, lines.count, proxy) }
+                            .keyboardShortcut("g", modifiers: [.command, .shift])
+                        Button("Next Match", systemImage: "chevron.down") { step(1, lines.count, proxy) }
+                            .keyboardShortcut("g", modifiers: .command)
+                    }
+                    .controlSize(.small)
+                    .fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(lines.prefix(100).enumerated()), id: \.offset) { index, line in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("\(line.number)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                                .frame(minWidth: 30, alignment: .trailing)
+                            Text(AttributedString(Display.highlighted(line.text, font: .monospacedSystemFont(ofSize: 11, weight: .regular),
+                                                                      color: .labelColor)))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 4)
+                        .background(index == currentMatch ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear),
+                                    in: RoundedRectangle(cornerRadius: 5))
+                        .id(index)
+                        .onTapGesture { currentMatch = index }
+                    }
+                    if total > 100 {
+                        Text("and \((total - 100).formatted()) more").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+                    }
+                }
+            }
+        } else if let passage = model.details[item.id]?.passage {
+            VStack(alignment: .leading, spacing: 6) {
+                sectionTitle("Closest Passage")
+                Text(passage)
+                    .font(.callout)
                     .textSelection(.enabled)
+                    .padding(10)
+                    .background(.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
 
-    private func details(_ result: SearchResult) -> some View {
-        section("Information") {
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 5) {
-                row("Kind", result.kind.displayName)
+    private func step(_ delta: Int, _ count: Int, _ proxy: ScrollViewProxy) {
+        guard count > 0 else { return }
+        currentMatch = (currentMatch + delta + count) % count
+        withAnimation { proxy.scrollTo(currentMatch, anchor: .center) }
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Information")
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                row("Kind", result.isDirectory && result.kind == .folder ? "Folder" : result.kind.displayName)
                 if !result.isDirectory { row("Size", ByteCountFormatter.string(fromByteCount: result.size, countStyle: .file)) }
+                ForEach(facts, id: \.0) { row($0.0, $0.1) }
                 row("Modified", Display.absoluteDate.string(from: result.modified))
                 row("Created", Display.absoluteDate.string(from: result.created))
-                row("Matched", [result.matchedName ? "name" : nil, result.matchedContent ? "contents" : nil,
-                                result.matchedMeaning ? "meaning" : nil].compactMap { $0 }.joined(separator: ", "))
-                if result.isCloudOnly { row("Storage", "Cloud only") }
+                if result.isCloudOnly { row("Storage", "In the cloud, not downloaded") }
+                row("Path", Display.abbreviate(result.path))
             }
-            .font(.caption)
+            .font(.callout)
         }
     }
 
     private func row(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label).foregroundStyle(.secondary)
-            Text(value.isEmpty ? "—" : value).textSelection(.enabled)
+        GridRow(alignment: .firstTextBaseline) {
+            Text(label).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+            Text(value).textSelection(.enabled).lineLimit(4)
         }
     }
 
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-            content()
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+    }
+
+    /// Cheap format-specific facts: image dimensions, PDF page count.
+    private static func facts(for result: SearchResult) async -> [(String, String)] {
+        guard !result.isCloudOnly, !result.isDirectory else { return [] }
+        switch result.kind {
+        case .image:
+            guard let source = CGImageSourceCreateWithURL(result.url as CFURL, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int else { return [] }
+            return [("Dimensions", "\(width) × \(height)")]
+        case .pdf:
+            guard let document = CGPDFDocument(result.url as CFURL) else { return [] }
+            return [("Pages", document.numberOfPages.formatted())]
+        default:
+            return []
+        }
+    }
+}
+
+/// The folder path as clickable components; clicking one searches inside it.
+private struct PathBreadcrumb: View {
+    let path: String
+    let select: (String) -> Void
+
+    private var components: [(name: String, path: String)] {
+        let home = NSHomeDirectory()
+        var result: [(String, String)] = []
+        var current = path
+        while current.count > 1 {
+            let name = current == home ? "~" : (current as NSString).lastPathComponent
+            result.insert((name, current), at: 0)
+            if current == home { break }
+            current = (current as NSString).deletingLastPathComponent
+        }
+        // The last folders are the informative ones; the full path is in Information.
+        return result.count > 4 ? [("…", result[result.count - 5].1)] + result.suffix(4) : result
+    }
+
+    var body: some View {
+        FlowLayout(spacing: 2) {
+            ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                HStack(spacing: 2) {
+                    if index > 0 {
+                        Image(systemName: "chevron.compact.right").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Button(component.name) { select(component.path) }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Search in \(Display.abbreviate(component.path))")
+                }
+            }
         }
     }
 }

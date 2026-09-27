@@ -3,7 +3,7 @@ import MoriaCore
 import Observation
 
 /// What the search text is matched against.
-enum SearchScope: String, CaseIterable, Identifiable {
+enum SearchScope: String, CaseIterable, Identifiable, Codable {
     case everything = "Everything"
     case names = "Names"
     case contents = "Contents"
@@ -27,6 +27,7 @@ enum ResultSort: String, CaseIterable, Identifiable {
     case kind = "Kind"
     case size = "Size"
     case modified = "Date Modified"
+    case created = "Date Created"
 
     var id: String { rawValue }
 }
@@ -40,14 +41,14 @@ struct ResultItem: Identifiable, Hashable {
 }
 
 /// Sidebar filters, merged into the parsed query where the query text doesn't set them.
-struct FilterState: Equatable {
-    enum DatePreset: String, CaseIterable, Identifiable {
+struct FilterState: Equatable, Codable {
+    enum DatePreset: String, CaseIterable, Identifiable, Codable {
         case any = "Any Time", today = "Today", week = "Past Week", month = "Past Month"
         case quarter = "Past 3 Months", year = "Past Year", older = "Older Than a Year"
         var id: String { rawValue }
     }
 
-    enum SizePreset: String, CaseIterable, Identifiable {
+    enum SizePreset: String, CaseIterable, Identifiable, Codable {
         case any = "Any Size", tiny = "Under 100 KB", small = "100 KB – 10 MB", large = "10 MB – 1 GB", huge = "Over 1 GB"
         var id: String { rawValue }
     }
@@ -122,6 +123,28 @@ final class SearchModel {
     var sort: ResultSort = .relevance { didSet { applySort() } }
     var sortAscending = false { didSet { applySort() } }
 
+    /// Scope and Ask as a single mode.
+    var mode: SearchMode {
+        get { askMode ? .ask : SearchMode(rawValue: scope.rawValue.lowercased()) ?? .everything }
+        set {
+            if let scope = newValue.scope {
+                askMode = false
+                self.scope = scope
+            } else if canAsk {
+                askMode = true
+            }
+        }
+    }
+
+    /// Sidebar selection; choosing an item runs its search.
+    var sidebarSelection: SidebarItem? = .home {
+        didSet { if sidebarSelection != oldValue, let sidebarSelection { navigate(to: sidebarSelection) } }
+    }
+    /// Result counts for collections and saved searches (loaded in the background).
+    private(set) var counts: [SidebarItem: Int] = [:]
+    /// Recently modified files for the home screen.
+    private(set) var recentFiles: [SearchResult] = []
+
     private(set) var items: [ResultItem] = []
     var selection: Set<Int64> = []
     private(set) var isSearching = false
@@ -129,9 +152,14 @@ final class SearchModel {
     private(set) var message: String?
     /// The filters an Ask request was turned into, and the equivalent query text.
     private(set) var interpretation: (summary: String, query: String)?
-    private(set) var snippets: [Int64: String] = [:]
-    /// Bumped when snippets arrive so the table can refresh visible rows.
-    private(set) var snippetRevision = 0
+    /// Content match details per result, loaded when a row first becomes visible.
+    private(set) var details: [Int64: MatchDetails] = [:]
+    /// Bumped when details arrive so the table can refresh visible rows.
+    private(set) var detailsRevision = 0
+    /// Shows the ⌘K action palette.
+    var showActions = false
+    /// Shows the "Save Search" name prompt.
+    var showSavePrompt = false
     /// Bumped to ask the results table to take keyboard focus.
     private(set) var focusResultsRequest = 0
     /// Bumped to ask the window to focus the search field.
@@ -141,11 +169,52 @@ final class SearchModel {
 
     private var activeQuery = SearchQuery()
     private var searchTask: Task<Void, Never>?
-    private var pendingSnippets: Set<Int64> = []
+    private var pendingDetails: Set<Int64> = []
 
     init(app: AppModel, limit: Int = 1000) {
         self.app = app
         self.limit = limit
+        scope = UserDefaults.standard.string(forKey: "defaultScope").flatMap(SearchScope.init) ?? .everything
+    }
+
+    /// Shows a request from the quick panel, a link, a Service or the CLI.
+    func show(_ request: SearchRequest) {
+        askMode = false
+        if let scope = request.scope { self.scope = scope }
+        if let text = request.text { self.text = text }
+    }
+
+    /// Moves the selected files to the Trash and drops them from the results.
+    func moveSelectionToTrash() {
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        Task {
+            do {
+                let trashed = try await NSWorkspace.shared.recycle(urls)
+                let removed = Set(trashed.keys.map(\.path))
+                items.removeAll { removed.contains($0.result.path) }
+                selection = selection.filter { id in items.contains { $0.id == id } }
+            } catch {
+                message = "Couldn't move to the Trash: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Results as CSV (path, name, kind, size, modified, match).
+    func exportCSV() -> String {
+        func field(_ value: String) -> String {
+            value.contains(where: { $0 == "," || $0 == "\"" || $0.isNewline }) ? "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : value
+        }
+        let formatter = ISO8601DateFormatter()
+        var lines = ["path,name,kind,size,modified,matched"]
+        for item in items {
+            let result = item.result
+            let matched = [result.matchedName ? "name" : nil, result.matchedContent ? "contents" : nil,
+                           result.matchedMeaning ? "meaning" : nil].compactMap { $0 }.joined(separator: "+")
+            lines.append([result.path, result.name, result.kind.rawValue, String(result.size),
+                          formatter.string(from: result.modified), matched].map(field).joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 
     var selectedItems: [ResultItem] {
@@ -158,6 +227,7 @@ final class SearchModel {
     // MARK: - Running searches
 
     private func textChanged() {
+        leaveNavigationIfEdited()
         if askMode {
             interpretation = nil
             return
@@ -222,8 +292,8 @@ final class SearchModel {
             let results = try await app.engine.search(query, limit: limit, semantic: useMeaning && canUseMeaning)
             guard !Task.isCancelled else { return }
             activeQuery = query
-            snippets = [:]
-            pendingSnippets = []
+            details = [:]
+            pendingDetails = []
             show(results.map { ResultItem(result: $0) })
             elapsed = clock.now - start
             if results.isEmpty { message = "No matches" }
@@ -240,8 +310,8 @@ final class SearchModel {
     private func runRegex(pattern: String) async {
         isSearching = true
         message = nil
-        snippets = [:]
-        pendingSnippets = []
+        details = [:]
+        pendingDetails = []
         items = []
         activeQuery = SearchQuery()
         let clock = ContinuousClock()
@@ -340,29 +410,205 @@ final class SearchModel {
             case .kind: x.kind.displayName < y.kind.displayName
             case .size: x.size < y.size
             case .modified: x.modified < y.modified
+            case .created: x.created < y.created
             case .relevance: x.score < y.score
             }
             return ascending ? ordered : !ordered
         }
     }
 
-    /// Loads the excerpt for a row the first time it becomes visible.
-    func requestSnippet(for item: ResultItem) {
+    /// Loads the excerpt and match count for a row the first time it becomes visible.
+    func requestDetails(for item: ResultItem) {
         let id = item.id
-        guard snippets[id] == nil, !pendingSnippets.contains(id), item.lines.isEmpty,
+        guard details[id] == nil, !pendingDetails.contains(id), item.lines.isEmpty,
               item.result.matchedContent || item.result.matchedMeaning else { return }
-        pendingSnippets.insert(id)
+        pendingDetails.insert(id)
         let query = activeQuery
         let engine = app.engine
         let result = item.result
         Task {
-            let snippet = try? await engine.snippet(for: result, query: query)
-            pendingSnippets.remove(id)
-            if let snippet {
-                snippets[id] = snippet
-                snippetRevision += 1
+            let loaded = try? await engine.details(for: result, query: query)
+            pendingDetails.remove(id)
+            if let loaded {
+                details[id] = loaded
+                detailsRevision += 1
             }
         }
+    }
+
+    // MARK: - Chips and facets
+
+    /// A removable chip for an active filter, typed or chosen in the sidebar.
+    struct FilterChip: Identifiable {
+        enum Source { case typed(Int), sidebar(PartialKeyPath<FilterState>) }
+        var label: String
+        var symbol: String
+        var isExclusion: Bool
+        var source: Source
+        var id: String { label + "\(isExclusion)" }
+    }
+
+    /// Filters typed in the query (or produced by Ask).
+    var typedChips: [FilterChip] {
+        QueryParser().chips(for: interpretation?.query ?? text).map {
+            FilterChip(label: $0.label, symbol: $0.symbol, isExclusion: $0.isExclusion, source: .typed($0.tokenIndex))
+        }
+    }
+
+    /// Filters in effect: typed tokens plus those chosen in the filter bar.
+    var activeChips: [FilterChip] {
+        var chips = typedChips
+        if !filters.kinds.isEmpty {
+            chips.append(FilterChip(label: filters.kinds.map(\.displayName).sorted().joined(separator: ", "),
+                                    symbol: "square.grid.2x2", isExclusion: false, source: .sidebar(\.kinds)))
+        }
+        if filters.date != .any {
+            chips.append(FilterChip(label: (filters.dateUsesCreation ? "Created: " : "Modified: ") + filters.date.rawValue,
+                                    symbol: "calendar", isExclusion: false, source: .sidebar(\.date)))
+        }
+        if filters.size != .any {
+            chips.append(FilterChip(label: filters.size.rawValue, symbol: "scalemass", isExclusion: false, source: .sidebar(\.size)))
+        }
+        if let folder = filters.folder {
+            chips.append(FilterChip(label: "In " + (folder as NSString).lastPathComponent, symbol: "folder",
+                                    isExclusion: false, source: .sidebar(\.folder)))
+        }
+        if filters.hideSystemFiles {
+            chips.append(FilterChip(label: "No Library or hidden files", symbol: "eye.slash", isExclusion: true, source: .sidebar(\.hideSystemFiles)))
+        }
+        if filters.hideCloudOnly {
+            chips.append(FilterChip(label: "Downloaded files only", symbol: "icloud", isExclusion: true, source: .sidebar(\.hideCloudOnly)))
+        }
+        return chips
+    }
+
+    func remove(_ chip: FilterChip) {
+        switch chip.source {
+        case let .typed(index):
+            if let interpretation {
+                // Editing an Ask interpretation turns it into an ordinary query.
+                askMode = false
+                text = QueryParser().removingToken(at: index, from: interpretation.query)
+            } else {
+                text = QueryParser().removingToken(at: index, from: text)
+            }
+        case let .sidebar(keyPath):
+            let empty = FilterState()
+            switch keyPath {
+            case \FilterState.kinds: filters.kinds = empty.kinds
+            case \FilterState.date: filters.date = empty.date
+            case \FilterState.size: filters.size = empty.size
+            case \FilterState.folder: filters.folder = empty.folder
+            case \FilterState.hideSystemFiles: filters.hideSystemFiles = false
+            case \FilterState.hideCloudOnly: filters.hideCloudOnly = false
+            default: break
+            }
+        }
+    }
+
+    struct Facet: Identifiable {
+        var kind: FileKind
+        var count: Int
+        var id: FileKind { kind }
+    }
+
+    /// Kinds present in the results, most common first, for one-click narrowing.
+    var facets: [Facet] {
+        guard items.count > 1 else { return [] }
+        let counts = Dictionary(grouping: items, by: \.result.kind).mapValues(\.count)
+        guard counts.count > 1 else { return [] }
+        return counts.map { Facet(kind: $0.key, count: $0.value) }.sorted { $0.count > $1.count }.prefix(6).map { $0 }
+    }
+
+    /// Click: only this kind. Option-click: leave it out (added as a typed `-kind:` filter).
+    func applyFacet(_ facet: Facet, exclude: Bool) {
+        if exclude {
+            text = (text.isEmpty ? "" : text + " ") + "-kind:" + facet.kind.rawValue
+        } else {
+            filters.kinds = [facet.kind]
+        }
+    }
+
+    // MARK: - Navigation
+
+    private var navigating = false
+
+    private func navigate(to item: SidebarItem) {
+        navigating = true
+        defer { navigating = false }
+        switch item {
+        case .home:
+            askMode = false
+            filters = FilterState()
+            text = ""
+            loadHome()
+        case let .collection(name):
+            guard let collection = Collection.all.first(where: { $0.name == name }) else { return }
+            askMode = false
+            filters = FilterState()
+            text = collection.query + " "
+        case let .saved(id):
+            if let saved = app.savedSearches.first(where: { $0.id == id }) { apply(saved) }
+        case let .location(path):
+            filters.folder = path
+        }
+    }
+
+    /// Typing leaves a collection or saved search (the sidebar shows where you started).
+    private func leaveNavigationIfEdited() {
+        guard !navigating else { return }
+        switch sidebarSelection {
+        case .collection, .saved: sidebarSelection = nil
+        case .home: if !text.isEmpty { sidebarSelection = nil }
+        case .location, .none: break
+        }
+    }
+
+    /// Loads the home screen's recent files and the sidebar counts.
+    func loadHome() {
+        let engine = app.engine
+        let saved = app.savedSearches
+        Task {
+            var recent = QueryParser().parse("modified:<14d -in:~/Library hidden:no cloud:no")
+            recent.excludedKinds = [.folder, .package, .application]
+            recentFiles = (try? await engine.search(recent, limit: 24)) ?? []
+
+            var counts: [SidebarItem: Int] = [:]
+            for collection in Collection.all {
+                let query = QueryParser().parse(collection.query)
+                counts[.collection(collection.name)] = (try? await engine.search(query, limit: 1000).count) ?? 0
+            }
+            for search in saved {
+                var query = QueryParser().parse(search.text)
+                search.filters.apply(to: &query)
+                counts[.saved(search.id)] = (try? await engine.search(query, limit: 1000).count) ?? 0
+            }
+            self.counts = counts
+        }
+    }
+
+    // MARK: - Saved searches
+
+    struct SavedSearch: Codable, Identifiable, Equatable {
+        var id = UUID()
+        var name: String
+        var text: String
+        var scope: SearchScope
+        var filters: FilterState
+    }
+
+    var canSave: Bool { !text.isEmpty || filters.isActive }
+
+    func currentAsSaved(named name: String) -> SavedSearch {
+        SavedSearch(name: name, text: text, scope: scope, filters: filters)
+    }
+
+    func apply(_ saved: SavedSearch) {
+        askMode = false
+        scope = saved.scope
+        filters = saved.filters
+        text = saved.text
+        search(debounce: false)
     }
 
     func focusResults() {
@@ -439,7 +685,7 @@ final class SearchModel {
         let key = last[..<colon].lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         let typed = last[last.index(after: colon)...].lowercased()
         let values = Self.values(for: key, roots: app.settings.roots)
-        return values.filter { typed.isEmpty || $0.value.lowercased().hasPrefix(typed) }.prefix(8).map {
+        return values.filter { (typed.isEmpty || $0.value.lowercased().hasPrefix(typed)) && $0.value.lowercased() != typed }.prefix(8).map {
             Suggestion(title: last[..<colon] + ":" + $0.value + ($0.help.isEmpty ? "" : "  —  " + $0.help),
                        symbol: "line.3.horizontal.decrease.circle",
                        completion: prefix + last[...colon] + $0.value + " ")

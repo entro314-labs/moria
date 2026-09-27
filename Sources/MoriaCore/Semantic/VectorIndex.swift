@@ -24,36 +24,47 @@ enum VectorCodec {
 final class VectorIndex: Sendable {
     let version: Int
     private let fileIDs: [Int64]
+    private let chunks: [Int32]
     private let vectors: [Float16]
     private let dimension: Int
 
     init(database: IndexDatabase) throws {
         var ids: [Int64] = []
+        var chunkNumbers: [Int32] = []
         var vectors: [Float16] = []
         var dimension = 0
         let version = try database.pool.read { db in
-            let cursor = try Row.fetchCursor(db, sql: "SELECT fileId, vec FROM chunk_vec")
+            let cursor = try Row.fetchCursor(db, sql: "SELECT fileId, chunk, vec FROM chunk_vec")
             while let row = try cursor.next() {
                 let data: Data = row["vec"]
                 let length = data.count / MemoryLayout<Float16>.size
                 if dimension == 0 { dimension = length }
                 guard length == dimension else { continue }
                 ids.append(row["fileId"])
+                chunkNumbers.append(row["chunk"])
                 VectorCodec.decode(data, into: &vectors)
             }
             return try Int.fetchOne(db, sql: "SELECT value FROM meta WHERE key = 'embeddings.version'") ?? 0
         }
         self.version = version
         fileIDs = ids
+        chunks = chunkNumbers
         self.vectors = vectors
         self.dimension = dimension
     }
 
     var isEmpty: Bool { fileIDs.isEmpty }
 
+    struct Hit {
+        var fileID: Int64
+        var score: Float
+        /// The file's closest chunk.
+        var chunk: Int
+    }
+
     struct Ranking {
-        /// File IDs by their best chunk's cosine similarity, highest first.
-        var hits: [(fileID: Int64, score: Float)]
+        /// Files by their best chunk's cosine similarity, highest first.
+        var hits: [Hit]
         /// Mean and standard deviation of all chunk similarities, to judge which hits stand out.
         var mean: Float
         var deviation: Float
@@ -94,12 +105,12 @@ final class VectorIndex: Sendable {
         var mean: Float = 0
         var deviation: Float = 0
         vDSP_normalize(scores, 1, nil, 1, &mean, &deviation, vDSP_Length(scores.count))
-        var best: [Int64: Float] = [:]
+        var best: [Int64: Hit] = [:]
         for (index, score) in scores.enumerated() {
             let id = fileIDs[index]
-            if score > best[id, default: -1] { best[id] = score }
+            if score > best[id]?.score ?? -1 { best[id] = Hit(fileID: id, score: score, chunk: Int(chunks[index])) }
         }
-        let hits = best.sorted { $0.value > $1.value }.prefix(limit).map { (fileID: $0.key, score: $0.value) }
+        let hits = Array(best.values.sorted { $0.score > $1.score }.prefix(limit))
         return Ranking(hits: hits, mean: mean, deviation: deviation, count: scores.count)
     }
 }

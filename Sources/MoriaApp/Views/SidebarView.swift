@@ -2,75 +2,69 @@ import AppKit
 import MoriaCore
 import SwiftUI
 
-/// Filter sidebar. Filters combine with the query; a filter typed in the query wins.
+/// Source-list sidebar: where to look, not a form. Home, one-click collections, saved
+/// searches and locations, each with a live count.
 struct SidebarView: View {
     @Bindable var model: SearchModel
     @State private var customFolders: [String] = []
 
-    private static let kinds: [(FileKind, String)] = [
-        (.document, "doc.richtext"), (.pdf, "doc.text"), (.image, "photo"), (.text, "text.alignleft"),
-        (.code, "chevron.left.forwardslash.chevron.right"), (.folder, "folder"), (.application, "app"),
-        (.audio, "waveform"), (.video, "film"), (.archive, "archivebox"),
-    ]
-
     var body: some View {
-        List {
-            Section("Kind") {
-                ForEach(Self.kinds, id: \.0) { kind, symbol in
-                    CheckRow(title: kind.displayName, symbol: symbol, checked: model.filters.kinds.contains(kind)) {
-                        if model.filters.kinds.contains(kind) { model.filters.kinds.remove(kind) } else { model.filters.kinds.insert(kind) }
+        List(selection: $model.sidebarSelection) {
+            Label("Home", systemImage: "house")
+                .tag(SidebarItem.home)
+
+            Section("Collections") {
+                ForEach(Collection.all) { collection in
+                    row(collection.name, collection.symbol, count: model.counts[.collection(collection.name)])
+                        .tag(SidebarItem.collection(collection.name))
+                        .help(collection.query)
+                }
+            }
+
+            if !model.app.savedSearches.isEmpty {
+                Section("Saved Searches") {
+                    ForEach(model.app.savedSearches) { saved in
+                        row(saved.name, "magnifyingglass.circle", count: model.counts[.saved(saved.id)])
+                            .tag(SidebarItem.saved(saved.id))
+                            .help(saved.text.isEmpty ? saved.scope.rawValue : saved.text)
+                            .contextMenu {
+                                Button("Delete Saved Search", role: .destructive) { model.app.deleteSavedSearch(saved.id) }
+                            }
                     }
                 }
             }
-            Section("Date") {
-                Picker("Date", selection: $model.filters.date) {
-                    ForEach(FilterState.DatePreset.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
-                Picker("Date Field", selection: $model.filters.dateUsesCreation) {
-                    Text("Modified").tag(false)
-                    Text("Created").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .disabled(model.filters.date == .any)
-            }
-            Section("Size") {
-                Picker("Size", selection: $model.filters.size) {
-                    ForEach(FilterState.SizePreset.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
-            }
-            Section("Location") {
-                locationRow(nil, title: "Everywhere", symbol: "globe")
+
+            Section("Locations") {
                 ForEach(locations, id: \.self) { path in
-                    locationRow(path, title: path == NSHomeDirectory() ? "Home" : (path as NSString).lastPathComponent,
-                                symbol: symbol(for: path))
+                    Label(title(for: path), systemImage: symbol(for: path))
+                        .tag(SidebarItem.location(path))
+                        .help(Display.abbreviate(path))
                 }
                 Button("Choose Folder…", systemImage: "plus") { chooseFolder() }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
             }
-            Section("Options") {
-                Toggle("Hide Library & hidden files", isOn: $model.filters.hideSystemFiles)
-                    .toggleStyle(.checkbox)
-                Toggle("Hide cloud-only files", isOn: $model.filters.hideCloudOnly)
-                    .toggleStyle(.checkbox)
-            }
-            if model.filters.isActive {
-                Button("Reset Filters", systemImage: "arrow.counterclockwise") { model.filters = FilterState() }
-                    .buttonStyle(.borderless)
-            }
         }
         .listStyle(.sidebar)
+        .onAppear { model.loadHome() }
+    }
+
+    private func row(_ title: String, _ symbol: String, count: Int?) -> some View {
+        Label(title, systemImage: symbol)
+            .badge(count.map { $0 >= 1000 ? Text("999+") : Text($0.formatted()) })
     }
 
     private var locations: [String] {
         let home = NSHomeDirectory()
-        var paths = ["Desktop", "Documents", "Downloads"].map { home + "/" + $0 }
-        paths += model.app.settings.roots.filter { !paths.contains($0) }
-        paths += customFolders.filter { !paths.contains($0) }
-        return paths
+        var paths = model.app.settings.roots
+        for name in ["Desktop", "Documents", "Downloads"] where !paths.contains(home + "/" + name) {
+            paths.append(home + "/" + name)
+        }
+        return paths + customFolders.filter { !paths.contains($0) }
+    }
+
+    private func title(for path: String) -> String {
+        path == NSHomeDirectory() ? "Home Folder" : FileManager.default.displayName(atPath: path)
     }
 
     private func symbol(for path: String) -> String {
@@ -78,15 +72,8 @@ struct SidebarView: View {
         case "Desktop": "menubar.dock.rectangle"
         case "Documents": "doc"
         case "Downloads": "arrow.down.circle"
-        default: path == NSHomeDirectory() ? "house" : "folder"
+        default: path == NSHomeDirectory() ? "person.crop.square" : "folder"
         }
-    }
-
-    private func locationRow(_ path: String?, title: String, symbol: String) -> some View {
-        CheckRow(title: title, symbol: symbol, checked: model.filters.folder == path) {
-            model.filters.folder = path
-        }
-        .help(path.map(Display.abbreviate) ?? "All indexed locations")
     }
 
     private func chooseFolder() {
@@ -96,31 +83,6 @@ struct SidebarView: View {
         panel.prompt = "Search Here"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         customFolders.append(url.path)
-        model.filters.folder = url.path
-    }
-}
-
-/// A sidebar row that toggles a filter: accent-colored symbol, title, trailing checkmark.
-private struct CheckRow: View {
-    let title: String
-    let symbol: String
-    let checked: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Label(title, systemImage: symbol)
-                Spacer()
-                if checked {
-                    Image(systemName: "checkmark")
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.tint)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(checked ? .isSelected : [])
+        model.sidebarSelection = .location(url.path)
     }
 }

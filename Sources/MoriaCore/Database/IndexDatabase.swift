@@ -36,6 +36,8 @@ public final class IndexDatabase: Sendable {
         self.url = url
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         var config = Configuration()
+        // The app and the CLI may write at the same time; wait for the lock instead of failing.
+        config.busyMode = .timeout(15)
         config.prepareDatabase { db in
             db.add(tokenizer: FoldingTokenizer.self)
             db.add(function: foldFunction)
@@ -163,6 +165,10 @@ public final class IndexDatabase: Sendable {
         public var contentIndexed: Int
         public var contentPending: Int
         public var cloudOnly: Int
+        /// Files indexed by name only because of the content-scope settings.
+        public var namesOnly: Int
+        /// Files whose text could not be read (damaged, password-protected, unsupported variant).
+        public var failed: Int
         public var embeddedChunks: Int
         public var databaseBytes: Int64
     }
@@ -175,7 +181,9 @@ public final class IndexDatabase: Sendable {
                     COALESCE(SUM(isDir = 1), 0) AS folders,
                     COALESCE(SUM(contentState = 1), 0) AS indexed,
                     COALESCE(SUM(contentState = 0), 0) AS pending,
-                    COALESCE(SUM(isCloudOnly = 1), 0) AS cloud
+                    COALESCE(SUM(isCloudOnly = 1), 0) AS cloud,
+                    COALESCE(SUM(contentState = 5), 0) AS namesOnly,
+                    COALESCE(SUM(contentState = 3), 0) AS failed
                 FROM file
                 """)!
             let chunks = try Int.fetchOne(db, sql: "SELECT count(*) FROM chunk_vec") ?? 0
@@ -190,7 +198,8 @@ public final class IndexDatabase: Sendable {
         return Stats(
             files: counts.0["files"], folders: counts.0["folders"],
             contentIndexed: counts.0["indexed"], contentPending: counts.0["pending"],
-            cloudOnly: counts.0["cloud"], embeddedChunks: counts.1, databaseBytes: bytes
+            cloudOnly: counts.0["cloud"], namesOnly: counts.0["namesOnly"], failed: counts.0["failed"],
+            embeddedChunks: counts.1, databaseBytes: bytes
         )
     }
 }

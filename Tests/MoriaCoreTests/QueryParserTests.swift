@@ -108,3 +108,17 @@ extension QueryParserTests {
         #expect(interpretation.summary.contains("May 31"))
     }
 }
+
+extension QueryParserTests {
+    @Test func chipsDescribeFiltersAndRemoveCleanly() {
+        let text = #"invoice kind:pdf -kind:image modified:<7d in:"~/My Files" -draft"#
+        let chips = parser.chips(for: text)
+        #expect(chips.map(\.label) == ["PDF", "No Image", "Modified in the past 7 days", "In My Files", "Without “draft”"])
+        #expect(chips.map(\.isExclusion) == [false, true, false, false, true])
+        let withoutFolder = parser.removingToken(at: chips[3].tokenIndex, from: text)
+        #expect(withoutFolder == "invoice kind:pdf -kind:image modified:<7d -draft")
+        let keepsQuoting = parser.removingToken(at: chips[0].tokenIndex, from: text)
+        #expect(parser.parse(keepsQuoting).folders == ["/Users/test/My Files"])
+        #expect(parser.parse("-kind:image,video").excludedKinds == [.image, .video])
+    }
+}

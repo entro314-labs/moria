@@ -17,6 +17,8 @@ public struct SearchQuery: Sendable, Equatable {
     public var excludedTerms: [String] = []
     public var extensions: Set<String> = []
     public var kinds: Set<FileKind> = []
+    /// `-kind:`: kinds to leave out.
+    public var excludedKinds: Set<FileKind> = []
     public var minSize: Int64?
     public var maxSize: Int64?
     public var modified: DateInterval?
@@ -36,7 +38,7 @@ public struct SearchQuery: Sendable, Equatable {
     }
 
     public var hasFilters: Bool {
-        !extensions.isEmpty || !kinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
+        !extensions.isEmpty || !kinds.isEmpty || !excludedKinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
             || created != nil || !folders.isEmpty || !excludedFolders.isEmpty || hidden != nil || cloudOnly != nil
     }
 
@@ -54,7 +56,7 @@ public struct SearchQuery: Sendable, Equatable {
 ///
 ///     invoice "rent receipt" -draft ext:pdf,docx kind:image size:>10mb size:1mb..5mb
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
-///     content:lease hidden:no cloud:no -in:~/Library
+///     content:lease hidden:no cloud:no -in:~/Library -kind:image
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -69,8 +71,12 @@ public struct QueryParser: Sendable {
     }
 
     public func parse(_ input: String) -> SearchQuery {
+        parse(tokens: Self.tokenize(input))
+    }
+
+    func parse(tokens: [Token]) -> SearchQuery {
         var query = SearchQuery()
-        for token in Self.tokenize(input) {
+        for token in tokens {
             if token.quoted {
                 query.phrases.append(token.text)
                 continue
@@ -80,6 +86,10 @@ public struct QueryParser: Sendable {
                 let rest = text.dropFirst()
                 if let key = ["in:", "path:", "folder:"].first(where: { rest.lowercased().hasPrefix($0) }), rest.count > key.count {
                     query.excludedFolders.append(expand(String(rest.dropFirst(key.count))))
+                } else if rest.lowercased().hasPrefix("kind:"),
+                          case let kinds = rest.dropFirst(5).split(separator: ",").compactMap({ Self.kind(named: $0.lowercased()) }),
+                          !kinds.isEmpty {
+                    query.excludedKinds.formUnion(kinds)
                 } else {
                     query.excludedTerms.append(String(rest))
                 }

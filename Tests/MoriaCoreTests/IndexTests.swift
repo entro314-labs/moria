@@ -53,6 +53,9 @@ struct IndexTests {
         // Snippets come from the file (text) since the content index stores no text.
         let hit = try await engine.search(QueryParser().parse("apartment")).first!
         #expect(try await engine.snippet(for: hit, query: QueryParser().parse("apartment"))?.contains("\u{1}apartment\u{2}") == true)
+        let details = try await engine.details(for: hit, query: QueryParser().parse("apartment"))
+        #expect(details?.matchCount == 1)
+        #expect(details?.lines.first?.number == 1)
 
         // Content-excluded folders (build output) are indexed by name only.
         #expect(try await search(engine, "output") == ["App/build/output.txt"])
@@ -90,6 +93,18 @@ struct IndexTests {
         #expect(try await search(engine, "apartment").isEmpty)
         #expect(try await search(engine, "electricity") == ["Archive/receipt.txt"])
         #expect(try await search(engine, "αποδειξη").isEmpty)
+    }
+
+    @Test func pauseStopsWorkAndRebuildStartsOver() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        try await controller.rebuild()
+        #expect(try database.stats().files == 0)
+        #expect(try database.meta("scan.generation") == nil)
+        try await controller.indexNow(full: false)  // no resumable state: scans again
+        #expect(try database.stats().contentIndexed == 4)
+        await controller.setPaused(true)
+        #expect(await controller.currentProgress().isPaused)
     }
 
     @Test func picksUpChangesFromFSEvents() async throws {
@@ -143,14 +158,15 @@ struct IndexTests {
         let index = try VectorIndex(database: database)
         let ranking = index.search(unit([0, 1, 0, 0]), limit: 5)
         #expect(ranking.hits.map(\.fileID) == [ids[0], ids[1]])
+        #expect(ranking.hits[0].chunk == 1)
         #expect(abs(ranking.hits[0].score - 1) < 0.01)
         #expect(abs(ranking.hits[1].score - 0.8) < 0.01)
         // Only the clear winner stands out (0.8 is within reach of the best but not of 2σ).
         let standouts = SearchEngine.standouts(VectorIndex.Ranking(
-            hits: [(1, 0.84), (2, 0.79), (3, 0.72)], mean: 0.70, deviation: 0.03, count: 1000))
+            hits: [.init(fileID: 1, score: 0.84, chunk: 0), .init(fileID: 2, score: 0.79, chunk: 0), .init(fileID: 3, score: 0.72, chunk: 0)], mean: 0.70, deviation: 0.03, count: 1000))
         #expect(standouts.map(\.fileID) == [1, 2])
-        #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [(1, 0.84), (2, 0.72)], mean: 0.70, deviation: 0.03, count: 1000)).map(\.fileID) == [1])
+        #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [.init(fileID: 1, score: 0.84, chunk: 0), .init(fileID: 2, score: 0.72, chunk: 0)], mean: 0.70, deviation: 0.03, count: 1000)).map(\.fileID) == [1])
         // Small index: one deviation.
-        #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [(1, 0.84), (2, 0.79)], mean: 0.75, deviation: 0.056, count: 5)).map(\.fileID) == [1])
+        #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [.init(fileID: 1, score: 0.84, chunk: 0), .init(fileID: 2, score: 0.79, chunk: 0)], mean: 0.75, deviation: 0.056, count: 5)).map(\.fileID) == [1])
     }
 }

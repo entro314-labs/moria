@@ -64,6 +64,29 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSDownloadsFolderUsageDescription</key><string>Moria indexes your Downloads so you can search them.</string>
   <key>NSRemovableVolumesUsageDescription</key><string>Moria indexes folders you add on external drives.</string>
   <key>NSNetworkVolumesUsageDescription</key><string>Moria indexes folders you add on network volumes.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>com.entro314labs.moria</string>
+      <key>CFBundleURLSchemes</key><array><string>moria</string></array>
+    </dict>
+  </array>
+  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key><dict><key>default</key><string>Search with Moria</string></dict>
+      <key>NSMessage</key><string>searchText</string>
+      <key>NSPortName</key><string>Moria</string>
+      <key>NSSendTypes</key><array><string>public.utf8-plain-text</string></array>
+    </dict>
+    <dict>
+      <key>NSMenuItem</key><dict><key>default</key><string>Search in Folder with Moria</string></dict>
+      <key>NSMessage</key><string>searchFolder</string>
+      <key>NSPortName</key><string>Moria</string>
+      <key>NSSendFileTypes</key><array><string>public.folder</string></array>
+      <key>NSRequiredContext</key><dict/>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

@@ -113,10 +113,23 @@ struct Search: AsyncParsableCommand {
     var ask = false
     @Flag(help: "Print JSON lines.")
     var json = false
+    @Flag(help: "Show the search in the Moria app instead of printing results.")
+    var show = false
 
     func run() async throws {
-        let db = try database.open()
         let text = query.joined(separator: " ")
+        if show {
+            var components = URLComponents(string: "moria://search")!
+            components.queryItems = [URLQueryItem(name: "q", value: text)]
+            if regex { components.queryItems?.append(URLQueryItem(name: "scope", value: "regex")) }
+            let open = Process()
+            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            open.arguments = [components.url!.absoluteString]
+            try open.run()
+            open.waitUntilExit()
+            return
+        }
+        let db = try database.open()
         let started = Date()
         if regex {
             try await runRegex(db: db, pattern: text)

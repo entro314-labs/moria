@@ -6,8 +6,11 @@ import SwiftUI
 struct MainView: View {
     @Environment(AppModel.self) private var app
     @State private var model: SearchModel
-    @State private var showInspector = true
+    @SceneStorage("showInspector") private var showInspector = true
+    @State private var exporting = false
+    @Environment(\.openWindow) private var openWindow
     @State private var showSyntax = false
+    @State private var saveName = ""
     @FocusState private var searchFocused: Bool
     @AppStorage("onboarded") private var onboarded = false
 
@@ -22,23 +25,22 @@ struct MainView: View {
         } detail: {
             ResultsArea(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaBar(edge: .top) {
-                    if let interpretation = model.interpretation {
-                        InterpretationBar(summary: interpretation.summary) { model.editInterpretation() }
+                .safeAreaBar(edge: .top) { FilterBar(model: model) }
+                .overlay(alignment: .top) {
+                    if model.showActions, !model.selection.isEmpty {
+                        ActionPalette(model: model) { model.showActions = false }
+                            .padding(.top, 60)
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
                     }
                 }
+                .animation(.snappy(duration: 0.18), value: model.showActions)
                 .safeAreaBar(edge: .bottom) { StatusBar(model: model) }
                 .inspector(isPresented: $showInspector) {
                     InspectorView(model: model)
                         .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
                 }
         }
-        .searchable(text: $model.text, placement: .toolbar, prompt: Text(model.prompt))
-        .searchScopes($model.scope) {
-            ForEach(SearchScope.allCases) { scope in
-                Text(scope.rawValue).tag(scope)
-            }
-        }
+        .searchable(text: $model.text, placement: .toolbarPrincipal, prompt: Text(model.prompt))
         .searchSuggestions {
             ForEach(model.suggestions) { suggestion in
                 Label(suggestion.title, systemImage: suggestion.symbol)
@@ -51,27 +53,51 @@ struct MainView: View {
             if !model.askMode { model.focusResults() }
         }
         .toolbar { toolbar }
+        .toolbar(removing: .title)
         .navigationTitle("Moria")
-        .navigationSubtitle(model.scope == .everything ? "" : model.scope.rawValue)
         .focusedSceneValue(\.searchModel, model)
         .focusedSceneValue(\.inspectorVisible, $showInspector)
+        .focusedSceneValue(\.exportResults, $exporting)
+        .fileExporter(isPresented: $exporting, document: CSVDocument(text: model.exportCSV()),
+                      contentType: .commaSeparatedText, defaultFilename: "Moria Results") { result in
+            if case let .failure(error) = result { app.lastError = "Export failed: \(error.localizedDescription)" }
+        }
         .onAppear {
             searchFocused = true
-            // `open -a Moria --args -initialQuery "…"` starts on a query.
-            if let query = UserDefaults.standard.string(forKey: "initialQuery") { model.text = query }
+            AppDelegate.openMainWindow = { openWindow(id: "main") }
+            if let request = AppDelegate.pendingRequest {
+                AppDelegate.pendingRequest = nil
+                model.show(request)
+            } else if let query = UserDefaults.standard.string(forKey: "initialQuery") {
+                // `open -a Moria --args -initialQuery "…"` starts on a query.
+                model.text = query
+            }
         }
         .onChange(of: model.focusSearchRequest) { searchFocused = true }
+        .alert("Save Search", isPresented: $model.showSavePrompt) {
+            TextField("Name", text: $saveName)
+            Button("Save") { app.save(model.currentAsSaved(named: saveName.isEmpty ? model.text : saveName)) }
+                .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saved searches appear in the sidebar and always show current results.")
+        }
+        .onChange(of: model.showSavePrompt) { if model.showSavePrompt { saveName = model.text } }
         .sheet(isPresented: Binding(get: { !onboarded }, set: { if !$0 { onboarded = true } })) {
             OnboardingView { onboarded = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: .moriaSearch)) { note in
-            if let text = note.object as? String { model.text = text }
+            // Only the frontmost window takes the request.
+            guard let request = note.object as? SearchRequest, isKeyWindow else { return }
+            model.show(request)
             searchFocused = true
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.refreshAccess()
         }
     }
+
+    @Environment(\.appearsActive) private var isKeyWindow
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
@@ -80,14 +106,8 @@ struct MainView: View {
                 Toggle(isOn: $model.useMeaning) {
                     Label("Search by Meaning", systemImage: "sparkles")
                 }
-                .help("Also find documents related in meaning, not only by their words")
-                .disabled(model.scope == .regex)
-            }
-            if model.canAsk {
-                Toggle(isOn: $model.askMode) {
-                    Label("Ask", systemImage: "text.bubble")
-                }
-                .help("Describe what you're looking for in plain language, then press Return")
+                .help("Also find documents related in meaning, not only by their words (⇧⌘M)")
+                .disabled(model.mode == .regex)
             }
         }
         ToolbarSpacer(.fixed)
@@ -108,6 +128,37 @@ extension Notification.Name {
     static let moriaSearch = Notification.Name("MoriaSearch")
 }
 
+// MARK: - Mode menu
+
+/// Search mode as a compact menu at the start of the filter bar (⌘1–⌘5), replacing scope tabs.
+struct ModeMenu: View {
+    @Bindable var model: SearchModel
+
+    var body: some View {
+        Menu {
+            Picker("Mode", selection: $model.mode) {
+                ForEach(SearchMode.allCases.filter { $0 != .ask || model.canAsk }) { mode in
+                    Label(mode.title, systemImage: mode.symbol).tag(mode)
+                }
+            }
+            .pickerStyle(.inline)
+            if !model.canAsk {
+                Divider()
+                SettingsLink { Text("Turn On Ask…") }
+            }
+        } label: {
+            // A single Text: menu buttons reduce a Label to its icon.
+            Text("\(Image(systemName: model.mode.symbol))  \(model.mode.title)")
+        }
+        .font(.caption.weight(.medium))
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .fixedSize()
+        .help("\(model.mode.help) (⌘1–⌘5)")
+    }
+}
+
 // MARK: - Results area
 
 private struct ResultsArea: View {
@@ -117,7 +168,7 @@ private struct ResultsArea: View {
         if !model.items.isEmpty {
             ResultsTable(model: model)
         } else if model.text.isEmpty, !model.filters.isActive {
-            WelcomeView(model: model)
+            HomeView(model: model)
         } else if model.isSearching {
             ProgressView("Searching…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -129,68 +180,13 @@ private struct ResultsArea: View {
     }
 }
 
-/// First screen: what can be searched, with example queries that run on click.
-private struct WelcomeView: View {
-    let model: SearchModel
-
-    private let examples: [(String, String)] = [
-        ("invoice ext:pdf", "PDFs mentioning invoices"),
-        ("kind:image modified:<7d", "Images from the past week"),
-        ("\"lease agreement\" in:~/Documents", "An exact phrase in Documents"),
-        ("size:>1gb", "Files over 1 GB"),
-        ("name:readme -in:~/Library", "READMEs outside Library"),
-    ]
-
-    var body: some View {
-        ContentUnavailableView {
-            Label("Search Everything", systemImage: "magnifyingglass")
-        } description: {
-            Text("Names, the text inside documents and code, and text in scans and screenshots.")
-        } actions: {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(examples, id: \.0) { query, meaning in
-                    Button {
-                        model.text = query
-                    } label: {
-                        HStack {
-                            Text(query).font(.system(.body, design: .monospaced))
-                            Spacer(minLength: 16)
-                            Text(meaning).foregroundStyle(.secondary)
-                        }
-                        .frame(width: 440)
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-    }
-}
-
-/// Shows how an Ask request was understood, with a way to edit it as a normal query.
-private struct InterpretationBar: View {
-    let summary: String
-    let edit: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "sparkles").foregroundStyle(.purple)
-            Text("Searching for \(Text(summary).fontWeight(.medium))")
-            Spacer()
-            Button("Edit as Query", action: edit)
-                .controlSize(.small)
-        }
-        .font(.callout)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-}
-
 // MARK: - Status bar
 
 /// Finder-style footer: result count on the left, indexing status on the right.
 private struct StatusBar: View {
     @Environment(AppModel.self) private var app
     let model: SearchModel
+    @State private var showCoverage = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -209,10 +205,18 @@ private struct StatusBar: View {
                     .lineLimit(1)
                     .help(error)
             }
-            if app.isBusy { ProgressView().controlSize(.mini) }
-            Text(app.statusText)
-                .monospacedDigit()
-                .lineLimit(1)
+            Button {
+                showCoverage.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    if app.isBusy { ProgressView().controlSize(.mini) }
+                    Text(app.statusText).monospacedDigit().lineLimit(1)
+                    Image(systemName: "info.circle").imageScale(.small)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("What's indexed")
+            .popover(isPresented: $showCoverage, arrowEdge: .top) { CoverageView() }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -227,38 +231,34 @@ private struct StatusBar: View {
 struct SyntaxHelp: View {
     let model: SearchModel
 
-    private let rows: [(String, String)] = [
-        ("tax return", "all words, in the name or the contents"),
-        ("\"exact phrase\"", "words in this order"),
-        ("-draft", "leave out files containing a word"),
-        ("name:report  content:lease", "match only names or only contents"),
-        ("ext:pdf,docx", "file extensions"),
-        ("kind:image", "folder, document, pdf, image, audio, video, archive, text, code, app"),
-        ("size:>10mb  size:1mb..5mb", "size limits (kb, mb, gb)"),
-        ("modified:<7d  modified:today", "relative dates (h, d, w, m, y)"),
-        ("modified:2026-03..2026-05", "calendar ranges (year, month or day)"),
-        ("created:2025", "creation date"),
-        ("in:~/Documents  -in:~/Library", "inside or outside a folder"),
-        ("hidden:no  cloud:no", "skip hidden files or cloud-only files"),
-    ]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Query Syntax").font(.headline)
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                ForEach(rows, id: \.0) { example, meaning in
-                    GridRow {
-                        Button(example) { model.append(example) }
-                            .buttonStyle(.link)
-                            .font(.system(.body, design: .monospaced))
-                        Text(meaning).foregroundStyle(.secondary)
-                    }
-                }
-            }
+            SyntaxTable { example in model.append(example) }
             Text("Click an example to add it. Filters combine with the sidebar; a filter you type wins.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .frame(width: 580)
+        .frame(width: 600)
+    }
+}
+
+import UniformTypeIdentifiers
+
+/// Exported results for `fileExporter`.
+struct CSVDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.commaSeparatedText]
+    var text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        text = String(decoding: configuration.file.regularFileContents ?? Data(), as: UTF8.self)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }

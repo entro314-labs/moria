@@ -17,6 +17,8 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var matchedName: Bool
     public var matchedContent: Bool
     public var matchedMeaning: Bool
+    /// For meaning matches: which embedded chunk of the document was closest.
+    public var meaningChunk: Int?
     /// Content excerpt, filled by `SearchEngine.snippet(for:query:)`; matched spans are wrapped
     /// in `highlightStart`/`highlightEnd`.
     public var snippet: String?
@@ -26,6 +28,23 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public static let highlightEnd: Character = "\u{2}"
 
     public var url: URL { URL(fileURLWithPath: path) }
+}
+
+/// Content match details for one result.
+public struct MatchDetails: Sendable, Equatable {
+    /// One-line excerpt with highlight markers.
+    public var snippet: String?
+    /// Matching lines in the text read (the first 256 KB, or the stored document text).
+    public var matchCount: Int
+    public var lines: [MatchLine]
+    /// For meaning matches, the passage closest to the query.
+    public var passage: String?
+}
+
+/// A matching line with highlight markers.
+public struct MatchLine: Sendable, Equatable, Hashable {
+    public var number: Int
+    public var text: String
 }
 
 /// Runs searches against the index.
@@ -59,7 +78,7 @@ public final class SearchEngine: Sendable {
         let (nameHits, contentHits) = try await database.pool.read { db in
             (try self.nameMatches(query, db: db, limit: limit), try self.contentMatches(query, db: db, limit: limit))
         }
-        var semanticHits: [Int64] = []
+        var semanticHits: [(fileID: Int64, chunk: Int)] = []
         if semantic, !query.semanticText.isEmpty {
             semanticHits = try await semanticMatches(query, limit: 200)
         }
@@ -111,18 +130,18 @@ public final class SearchEngine: Sendable {
         ).map { Self.result(from: $0, content: true) }
     }
 
-    private func semanticMatches(_ query: SearchQuery, limit: Int) async throws -> [Int64] {
+    private func semanticMatches(_ query: SearchQuery, limit: Int) async throws -> [(fileID: Int64, chunk: Int)] {
         guard let vector = try await embedder.embedQuery(query.semanticText) else { return [] }
         let index = try await vectors.index(for: database)
         let ranking = index.search(vector, limit: limit)
-        return Self.standouts(ranking).map(\.fileID)
+        return Self.standouts(ranking).map { ($0.fileID, $0.chunk) }
     }
 
     /// Hits that stand out from the corpus. Absolute cosine values shift with query length
     /// (short queries score ~0.6, sentences ~0.8), so the cutoff is relative: two standard
     /// deviations above the mean similarity (one for small indexes, where even the best match
     /// can't stand out that far), and near the best hit.
-    static func standouts(_ ranking: VectorIndex.Ranking) -> [(fileID: Int64, score: Float)] {
+    static func standouts(_ ranking: VectorIndex.Ranking) -> [VectorIndex.Hit] {
         guard let best = ranking.hits.first?.score else { return [] }
         let deviations: Float = ranking.count >= 200 ? 2 : 1
         let cutoff = max(ranking.mean + deviations * ranking.deviation, best - 0.06)
@@ -142,7 +161,7 @@ public final class SearchEngine: Sendable {
     // MARK: - Fusion
 
     private func fuse(
-        query: SearchQuery, names: [SearchResult], contents: [SearchResult], semantic: [Int64], limit: Int
+        query: SearchQuery, names: [SearchResult], contents: [SearchResult], semantic: [(fileID: Int64, chunk: Int)], limit: Int
     ) throws -> [SearchResult] {
         var byID: [Int64: SearchResult] = [:]
         func add(_ hit: SearchResult, rank: Int, weight: Double) {
@@ -166,12 +185,14 @@ public final class SearchEngine: Sendable {
             add(hit, rank: rank, weight: Self.contentWeight)
         }
         if !semantic.isEmpty {
-            let rows = try fetch(ids: semantic, query: query)
-            for (rank, id) in semantic.enumerated() {
-                guard var hit = rows[id] else { continue }
+            let rows = try fetch(ids: semantic.map(\.fileID), query: query)
+            for (rank, match) in semantic.enumerated() {
+                guard var hit = rows[match.fileID] else { continue }
                 hit.matchedMeaning = true
+                hit.meaningChunk = match.chunk
                 add(hit, rank: rank, weight: Self.semanticWeight)
-                byID[id]?.matchedMeaning = true
+                byID[match.fileID]?.matchedMeaning = true
+                byID[match.fileID]?.meaningChunk = match.chunk
             }
         }
         let excluded = try excludedIDs(query, candidates: Array(byID.keys))
@@ -252,6 +273,12 @@ public final class SearchEngine: Sendable {
     /// Uses the stored text for PDFs, Office files and OCR'd images, and reads the file head
     /// for text and code. Returns nil when no excerpt applies (e.g. a filename-only match).
     public func snippet(for result: SearchResult, query: SearchQuery) async throws -> String? {
+        try await details(for: result, query: query)?.snippet
+    }
+
+    /// Why a result matched in its contents: an excerpt, the number of matching lines, and the
+    /// lines themselves (for the preview). For meaning-only matches, the closest passage.
+    public func details(for result: SearchResult, query: SearchQuery) async throws -> MatchDetails? {
         guard result.matchedContent || result.matchedMeaning, !result.isDirectory, !result.isCloudOnly else { return nil }
         let text: String?
         if ContentExtractor.keepsExtractedText(result.kind) {
@@ -263,8 +290,14 @@ public final class SearchEngine: Sendable {
         }
         guard let text else { return nil }
         let terms = query.terms + query.contentTerms + query.phrases
-        if let snippet = Snippet.make(from: text, terms: terms) { return snippet }
-        return result.matchedMeaning ? Snippet.lead(of: text) : nil
+        let lines = Snippet.matchingLines(in: text, terms: terms, limit: 200)
+        if let snippet = Snippet.make(from: text, terms: terms) {
+            return MatchDetails(snippet: snippet, matchCount: lines.count, lines: lines.lines, passage: nil)
+        }
+        guard result.matchedMeaning else { return nil }
+        let chunks = Embedder.chunks(of: text)
+        let passage = result.meaningChunk.flatMap { chunks.indices.contains($0) ? chunks[$0] : nil } ?? chunks.first
+        return MatchDetails(snippet: passage.flatMap { Snippet.lead(of: $0) }, matchCount: 0, lines: [], passage: passage)
     }
 
     private static func readHead(of path: String) throws -> String? {
@@ -284,7 +317,7 @@ public final class SearchEngine: Sendable {
             id: row["id"], path: row["path"], name: row["name"], ext: row["ext"],
             kind: FileKind(rawValue: row["kind"]) ?? .other, isDirectory: row["isDir"], size: row["size"],
             modified: Date(timeIntervalSince1970: row["mtime"]), created: Date(timeIntervalSince1970: row["btime"]),
-            isCloudOnly: row["isCloudOnly"], matchedName: name, matchedContent: content, matchedMeaning: false,
+            isCloudOnly: row["isCloudOnly"], matchedName: name, matchedContent: content, matchedMeaning: false, meaningChunk: nil,
             snippet: nil, score: 0
         )
     }
@@ -321,6 +354,10 @@ struct FilterSQL {
         if !query.kinds.isEmpty {
             add("f.kind IN (\(Array(repeating: "?", count: query.kinds.count).joined(separator: ",")))",
                 values: query.kinds.map(\.rawValue).sorted())
+        }
+        if !query.excludedKinds.isEmpty {
+            add("f.kind NOT IN (\(Array(repeating: "?", count: query.excludedKinds.count).joined(separator: ",")))",
+                values: query.excludedKinds.map(\.rawValue).sorted())
         }
         if let min = query.minSize { add("f.size >= ?", min) }
         if let max = query.maxSize { add("f.size <= ?", max) }

@@ -35,6 +35,31 @@ final class AppModel {
         }
     }
 
+    /// Saved searches shown in the sidebar, like Finder smart folders.
+    private(set) var savedSearches: [SearchModel.SavedSearch] = {
+        guard let data = UserDefaults.standard.data(forKey: "savedSearches") else { return [] }
+        return (try? JSONDecoder().decode([SearchModel.SavedSearch].self, from: data)) ?? []
+    }()
+
+    func save(_ search: SearchModel.SavedSearch) {
+        savedSearches.removeAll { $0.id == search.id }
+        savedSearches.append(search)
+        persistSavedSearches()
+    }
+
+    func deleteSavedSearch(_ id: UUID) {
+        savedSearches.removeAll { $0.id == id }
+        persistSavedSearches()
+    }
+
+    private func persistSavedSearches() {
+        do {
+            UserDefaults.standard.set(try JSONEncoder().encode(savedSearches), forKey: "savedSearches")
+        } catch {
+            lastError = "Saved searches could not be stored: \(error.localizedDescription)"
+        }
+    }
+
     /// Set by the app delegate; toggles the quick search panel.
     var showQuickPanel: () -> Void = {}
     private var hotKey: HotKey?
@@ -42,7 +67,9 @@ final class AppModel {
 
     init() throws {
         MaterializationGuard.disableDownloads()
-        database = try IndexDatabase()
+        // `-indexPath <file>` opens a different index (development and testing).
+        let path = UserDefaults.standard.string(forKey: "indexPath")
+        database = try IndexDatabase(url: path.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? IndexDatabase.defaultURL)
         controller = try IndexController(database: database)
         engine = SearchEngine(database: database)
         settings = try database.loadSettings()
@@ -110,6 +137,29 @@ final class AppModel {
         Task { await controller.requestFullScan() }
     }
 
+    func setPaused(_ paused: Bool) {
+        progress.isPaused = paused
+        Task { await controller.setPaused(paused) }
+    }
+
+    /// Asks before erasing the index; rebuilding reads every file again.
+    func confirmRebuild() {
+        let alert = NSAlert()
+        alert.messageText = "Rebuild the index?"
+        alert.informativeText = "Moria will forget everything it has indexed and read all files again. Searching works again as soon as names are scanned; contents take longer. Settings and saved searches are kept."
+        alert.addButton(withTitle: "Rebuild")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            do {
+                try await controller.rebuild()
+            } catch {
+                lastError = "The index could not be rebuilt: \(error)"
+            }
+        }
+    }
+
     private func registerHotKey() {
         do {
             try hotKey?.register(hotKeyChoice)
@@ -129,6 +179,7 @@ final class AppModel {
         case .recognizingText: return "Recognizing text in images… \(count(progress.remainingFiles)) left"
         case .embedding: return "Building semantic index… \(count(progress.embeddedFiles)) done"
         case .idle:
+            if progress.isPaused { return "Indexing paused" }
             guard let stats else { return "Ready" }
             return "\(count(stats.files + stats.folders)) items indexed"
         }

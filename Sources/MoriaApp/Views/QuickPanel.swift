@@ -11,7 +11,7 @@ final class QuickPanelController: NSObject, NSWindowDelegate {
     private let panel: QuickPanelWindow
     private let model: SearchModel
 
-    init(app: AppModel, openInMain: @escaping (String) -> Void) {
+    init(app: AppModel, openInMain: @escaping @MainActor (String) -> Void) {
         model = SearchModel(app: app, limit: 30)
         panel = QuickPanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 460),
@@ -93,20 +93,39 @@ struct QuickPanelView: View {
                 if model.isSearching { ProgressView().controlSize(.small) }
             }
             .padding(16)
+            if !model.activeChips.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(model.activeChips) { chip in
+                        Label(chip.label, systemImage: chip.symbol)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(.tint.opacity(0.14), in: Capsule())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+            }
             if !model.items.isEmpty {
                 Divider()
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
                             ForEach(model.items) { item in
-                                QuickRow(item: item, snippet: model.snippets[item.id], selected: model.selection.contains(item.id))
+                                QuickRow(item: item, snippet: model.details[item.id]?.snippet, selected: model.selection.contains(item.id))
                                     .id(item.id)
                                     .onTapGesture(count: 2) { FileActions.open([item.result.url]); close() }
                                     .onTapGesture { model.selection = [item.id] }
-                                    .onAppear { model.requestSnippet(for: item) }
+                                    .onAppear { model.requestDetails(for: item) }
                             }
                         }
                         .padding(6)
+                        if model.items.count == model.limit {
+                            Button("Show all results in Moria  ⌘O") { openInMain(model.text) }
+                                .buttonStyle(.link)
+                                .padding(.bottom, 8)
+                        }
                     }
                     .onChange(of: model.selection) { _, selection in
                         if let id = selection.first { proxy.scrollTo(id) }
@@ -131,7 +150,11 @@ struct QuickPanelView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onKeyPress(.upArrow) { move(-1); return .handled }
-        .onKeyPress(.escape) { close(); return .handled }
+        // Esc clears the text first, then closes (as Spotlight does).
+        .onKeyPress(.escape) {
+            if model.text.isEmpty { close() } else { model.text = "" }
+            return .handled
+        }
         .onKeyPress(keys: ["o", "r"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if press.characters == "o" {

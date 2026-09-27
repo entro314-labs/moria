@@ -23,6 +23,8 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var app
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
+    @AppStorage("showDockIcon") private var showDockIcon = true
+    @AppStorage("defaultScope") private var defaultScope = SearchScope.everything.rawValue
 
     var body: some View {
         @Bindable var app = app
@@ -36,6 +38,15 @@ private struct GeneralSettings: View {
                 }
                 Toggle("Open at login", isOn: Binding(get: { app.launchAtLogin }, set: { app.launchAtLogin = $0 }))
                 Toggle("Show in menu bar", isOn: $showMenuBarExtra)
+                Toggle("Show in Dock", isOn: $showDockIcon)
+                    .onChange(of: showDockIcon) {
+                        NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
+                        if !showDockIcon { showMenuBarExtra = true }  // keep a way back to the app
+                    }
+                    .disabled(!showMenuBarExtra && showDockIcon)
+                Picker("New searches look in", selection: $defaultScope) {
+                    ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }
             } footer: {
                 Text("Moria keeps its index current in the background while it's running.")
             }
@@ -82,6 +93,18 @@ private struct LocationSettings: View {
                 Toggle("Include hidden files", isOn: binding(\.includeHidden))
                 Toggle("Look inside packages (apps, photo libraries)", isOn: binding(\.descendIntoPackages))
             }
+            Section {
+                Button("Restore Default Locations") {
+                    let defaults = MoriaSettings.defaults()
+                    app.update {
+                        $0.roots = defaults.roots
+                        $0.excludedPaths = defaults.excludedPaths
+                        $0.excludedNames = defaults.excludedNames
+                        $0.includeHidden = defaults.includeHidden
+                        $0.descendIntoPackages = defaults.descendIntoPackages
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -114,6 +137,19 @@ private struct ContentSettings: View {
                     app.update { $0.contentExcludedPaths = paths }
                 }
                 NameList(names: app.settings.contentExcludedNames) { names in app.update { $0.contentExcludedNames = names } }
+                Button("Restore Defaults") {
+                    let defaults = MoriaSettings.defaults()
+                    app.update {
+                        $0.contentExcludedPaths = defaults.contentExcludedPaths
+                        $0.contentExcludedNames = defaults.contentExcludedNames
+                        $0.extractHiddenContent = defaults.extractHiddenContent
+                        $0.maxContentKilobytes = defaults.maxContentKilobytes
+                        $0.maxFileMegabytes = defaults.maxFileMegabytes
+                        $0.ocrImages = defaults.ocrImages
+                        $0.ocrScannedPDFs = defaults.ocrScannedPDFs
+                    }
+                }
+                .controlSize(.small)
             } header: {
                 Text("Names only (don't read contents)")
             } footer: {
@@ -197,11 +233,14 @@ private struct IndexSettings: View {
             }
             Section {
                 HStack {
+                    Button(app.progress.isPaused ? "Resume Indexing" : "Pause Indexing") { app.setPaused(!app.progress.isPaused) }
                     Button("Rescan Now") { app.rescan() }
-                    Button("Show Index in Finder") { FileActions.reveal([app.database.url]) }
+                    Button("Rebuild Index…") { app.confirmRebuild() }
+                    Spacer()
+                    Button("Show in Finder") { FileActions.reveal([app.database.url]) }
                 }
             } footer: {
-                Text("Moria follows file changes as they happen; a rescan is only needed if something looks out of date.")
+                Text("Moria follows file changes as they happen; a rescan is only needed if something looks out of date. Rebuilding erases the index and reads everything again.")
             }
         }
         .formStyle(.grouped)

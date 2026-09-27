@@ -181,6 +181,21 @@ extension IndexDatabase {
         }
     }
 
+    /// Removes every indexed entry (settings are kept).
+    func eraseIndex() throws {
+        try pool.write { db in
+            // Empty the FTS tables in one step so the per-row delete trigger has nothing to do.
+            try db.execute(sql: """
+                INSERT INTO name_fts(name_fts) VALUES ('delete-all');
+                INSERT INTO content_fts(content_fts) VALUES ('delete-all');
+                DELETE FROM doc_text; DELETE FROM chunk_vec;
+                DELETE FROM file; DELETE FROM dir;
+                DELETE FROM meta WHERE key LIKE 'scan.%' OR key LIKE 'fsevents.%';
+                """)
+        }
+        try pool.writeWithoutTransaction { db in try db.execute(sql: "VACUUM") }
+    }
+
     /// Stored text for a file, if its format keeps one (PDF, Office, OCR'd images).
     public func storedText(fileID: Int64) throws -> String? {
         try pool.read { db in try String.fetchOne(db, sql: "SELECT body FROM doc_text WHERE fileId = ?", arguments: [fileID]) }

@@ -33,10 +33,17 @@ struct ResultsTable: NSViewRepresentable {
             tableColumn.title = column.title
             tableColumn.width = column.width
             tableColumn.minWidth = column.minWidth
-            tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: column.defaultAscending)
+            tableColumn.isHidden = !column.visibleByDefault
+            if column.sortable {
+                tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: column.defaultAscending)
+            }
             if column == .size { tableColumn.headerCell.alignment = .right }
             table.addTableColumn(tableColumn)
         }
+        // Right-click the header to choose columns, as in Finder.
+        let headerMenu = NSMenu()
+        headerMenu.delegate = context.coordinator
+        table.headerView?.menu = headerMenu
         let menu = NSMenu()
         menu.delegate = context.coordinator
         table.menu = menu
@@ -59,33 +66,41 @@ struct ResultsTable: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         enum Column: String, CaseIterable {
-            case name, kind, size, modified
+            case name, location, kind, ext, size, modified, created
 
             var identifier: NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier(rawValue) }
             var title: String {
                 switch self {
                 case .name: "Name"
+                case .location: "Where"
                 case .kind: "Kind"
+                case .ext: "Extension"
                 case .size: "Size"
                 case .modified: "Modified"
+                case .created: "Created"
                 }
             }
             var width: CGFloat {
                 switch self {
                 case .name: 520
+                case .location: 220
                 case .kind: 90
+                case .ext: 70
                 case .size: 72
-                case .modified: 120
+                case .modified, .created: 120
                 }
             }
+            var visibleByDefault: Bool { self != .location && self != .ext && self != .created }
+            var sortable: Bool { self != .location && self != .ext }
             var minWidth: CGFloat { self == .name ? 220 : 60 }
             var defaultAscending: Bool { self == .name || self == .kind }
             var sort: ResultSort {
                 switch self {
                 case .name: .name
-                case .kind: .kind
+                case .kind, .ext: .kind
                 case .size: .size
-                case .modified: .modified
+                case .modified, .location: .modified
+                case .created: .created
                 }
             }
         }
@@ -93,7 +108,7 @@ struct ResultsTable: NSViewRepresentable {
         var model: SearchModel
         weak var table: ResultsTableView?
         private(set) var items: [ResultItem] = []
-        private var snippetRevision = -1
+        private var detailsRevision = -1
         private var focusRequest = 0
         private var quickLookRequest = 0
         private var applyingSelection = false
@@ -109,14 +124,14 @@ struct ResultsTable: NSViewRepresentable {
                 items = model.items
                 table.reloadData()
                 if !items.isEmpty { table.scrollRowToVisible(0) }
-            } else if model.snippetRevision != snippetRevision {
+            } else if model.detailsRevision != detailsRevision {
                 let visible = table.rows(in: table.visibleRect)
                 if visible.length > 0 {
                     table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<visible.location + visible.length),
                                      columnIndexes: IndexSet(integer: 0))
                 }
             }
-            snippetRevision = model.snippetRevision
+            detailsRevision = model.detailsRevision
             syncSelection()
             if model.focusResultsRequest != focusRequest {
                 focusRequest = model.focusResultsRequest
@@ -181,9 +196,9 @@ struct ResultsTable: NSViewRepresentable {
             switch column {
             case .name:
                 let cell = tableView.makeView(withIdentifier: ResultCell.identifier, owner: nil) as? ResultCell ?? ResultCell()
-                let snippet = model.snippets[item.id]
-                cell.configure(item: item, snippet: snippet)
-                if snippet == nil { model.requestSnippet(for: item) }
+                let details = model.details[item.id]
+                cell.configure(item: item, details: details)
+                if details == nil { model.requestDetails(for: item) }
                 return cell
             case .kind:
                 return textCell(tableView, item.result.isDirectory && item.result.kind == .folder ? "Folder" : item.result.kind.displayName)
@@ -193,6 +208,17 @@ struct ResultsTable: NSViewRepresentable {
                 let cell = textCell(tableView, Display.date(item.result.modified))
                 cell.toolTip = Display.absoluteDate.string(from: item.result.modified)
                 return cell
+            case .created:
+                let cell = textCell(tableView, Display.date(item.result.created))
+                cell.toolTip = Display.absoluteDate.string(from: item.result.created)
+                return cell
+            case .location:
+                let cell = textCell(tableView, Display.parent(of: item.result.path))
+                cell.textField?.lineBreakMode = .byTruncatingHead
+                cell.toolTip = item.result.path
+                return cell
+            case .ext:
+                return textCell(tableView, item.result.ext.isEmpty ? "—" : item.result.ext)
             }
         }
 
@@ -205,7 +231,6 @@ struct ResultsTable: NSViewRepresentable {
                 field.translatesAutoresizingMaskIntoConstraints = false
                 field.textColor = .secondaryLabelColor
                 field.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-                field.lineBreakMode = .byTruncatingTail
                 cell.addSubview(field)
                 cell.textField = field
                 NSLayoutConstraint.activate([
@@ -217,6 +242,7 @@ struct ResultsTable: NSViewRepresentable {
             }()
             cell.textField?.stringValue = text
             cell.textField?.alignment = alignment
+            cell.textField?.lineBreakMode = .byTruncatingTail
             cell.toolTip = nil
             return cell
         }
@@ -242,6 +268,17 @@ struct ResultsTable: NSViewRepresentable {
 
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
+            if menu === table?.headerView?.menu {
+                for column in table?.tableColumns ?? [] where column.identifier.rawValue != Column.name.rawValue {
+                    let item = NSMenuItem(title: column.title, action: #selector(MenuAction.run), keyEquivalent: "")
+                    let handler = MenuAction { column.isHidden.toggle() }
+                    item.target = handler
+                    item.representedObject = handler
+                    item.state = column.isHidden ? .off : .on
+                    menu.addItem(item)
+                }
+                return
+            }
             let urls = clickedOrSelectedURLs
             guard !urls.isEmpty else { return }
             func add(_ title: String, _ symbol: String, _ action: @escaping () -> Void) {
@@ -293,6 +330,11 @@ final class ResultsTableView: NSTableView, QLPreviewPanelDataSource, QLPreviewPa
         }
     }
 
+    /// ⌘C copies the selected files, as in Finder.
+    @objc func copy(_ sender: Any?) {
+        FileActions.copyFiles(coordinator?.selectedURLs ?? [])
+    }
+
     func togglePreview() {
         let panel = QLPreviewPanel.shared()!
         if panel.isVisible { panel.orderOut(nil) } else { panel.makeKeyAndOrderFront(nil) }
@@ -334,14 +376,14 @@ final class ResultsTableView: NSTableView, QLPreviewPanelDataSource, QLPreviewPa
 
 // MARK: - Name cell
 
-/// Two-line cell: icon, name and match badges; below, the content excerpt or the folder.
+/// Two-line cell: icon, name and "why it matched" labels; below, the excerpt or the folder.
 final class ResultCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("result")
 
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
-    private let badges = NSStackView()
+    private let labels = NSStackView()
 
     init() {
         super.init(frame: .zero)
@@ -353,14 +395,15 @@ final class ResultCell: NSTableCellView {
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byTruncatingTail
         detail.maximumNumberOfLines = 1
-        badges.orientation = .horizontal
-        badges.spacing = 4
-        for view in [icon, name, detail, badges] as [NSView] {
+        labels.orientation = .horizontal
+        labels.spacing = 4
+        for view in [icon, name, detail, labels] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        badges.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labels.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labels.setContentHuggingPriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -368,9 +411,9 @@ final class ResultCell: NSTableCellView {
             icon.heightAnchor.constraint(equalToConstant: 32),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
             name.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            badges.leadingAnchor.constraint(equalTo: name.trailingAnchor, constant: 6),
-            badges.centerYAnchor.constraint(equalTo: name.centerYAnchor),
-            badges.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            labels.leadingAnchor.constraint(equalTo: name.trailingAnchor, constant: 8),
+            labels.centerYAnchor.constraint(equalTo: name.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
             detail.leadingAnchor.constraint(equalTo: name.leadingAnchor),
             detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             detail.topAnchor.constraint(equalTo: name.bottomAnchor, constant: 2),
@@ -380,7 +423,7 @@ final class ResultCell: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(item: ResultItem, snippet: String?) {
+    func configure(item: ResultItem, details: MatchDetails?) {
         let result = item.result
         icon.image = IconCache.icon(for: result)
         icon.alphaValue = result.isCloudOnly ? 0.55 : 1
@@ -395,7 +438,7 @@ final class ResultCell: NSTableCellView {
                 attributes: [.font: NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular),
                              .foregroundColor: NSColor.secondaryLabelColor]
             )
-        } else if let snippet {
+        } else if let snippet = details?.snippet {
             detail.lineBreakMode = .byTruncatingTail
             detail.attributedStringValue = Display.highlighted(snippet, font: font, color: .secondaryLabelColor)
         } else {
@@ -407,17 +450,89 @@ final class ResultCell: NSTableCellView {
             )
         }
 
-        badges.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        if result.matchedMeaning { badges.addArrangedSubview(Self.badge("sparkles", tint: .systemPurple, help: "Matched by meaning")) }
-        if result.matchedContent { badges.addArrangedSubview(Self.badge("text.alignleft", tint: .systemBlue, help: "Matched in contents")) }
-        if result.isCloudOnly { badges.addArrangedSubview(Self.badge("icloud", tint: .secondaryLabelColor, help: "Not downloaded")) }
+        labels.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for label in MatchLabel.labels(for: item, details: details) {
+            labels.addArrangedSubview(Self.capsule(label))
+        }
     }
 
-    private static func badge(_ symbol: String, tint: NSColor, help: String) -> NSView {
-        let view = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: help)!)
-        view.contentTintColor = tint
-        view.symbolConfiguration = .init(pointSize: 10, weight: .semibold)
-        view.toolTip = help
-        return view
+    /// White text on the blue selection highlight, as in Finder.
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet {
+            let emphasized = backgroundStyle == .emphasized
+            for case let capsule in labels.arrangedSubviews {
+                guard let field = capsule.subviews.first as? NSTextField, let label = capsule.identifier.map(\.rawValue) else { continue }
+                let color = emphasized ? NSColor.white : MatchLabel.color(named: label)
+                field.textColor = color
+                capsule.layer?.backgroundColor = color.withAlphaComponent(emphasized ? 0.22 : 0.14).cgColor
+            }
+        }
+    }
+
+    private static func capsule(_ label: MatchLabel) -> NSView {
+        let field = NSTextField(labelWithString: label.text)
+        field.font = .systemFont(ofSize: 10, weight: .semibold)
+        field.textColor = label.color
+        field.toolTip = label.help
+        let container = NSView()
+        container.identifier = NSUserInterfaceItemIdentifier(label.colorName)
+        container.wantsLayer = true
+        container.layer?.backgroundColor = label.color.withAlphaComponent(0.14).cgColor
+        container.layer?.cornerRadius = 7
+        container.layer?.cornerCurve = .continuous
+        field.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
+            field.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
+            field.topAnchor.constraint(equalTo: container.topAnchor, constant: 1),
+            field.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -1),
+        ])
+        container.setAccessibilityElement(true)
+        container.setAccessibilityLabel(label.help)
+        return container
+    }
+}
+
+/// "Why this matched" labels shown on each result.
+struct MatchLabel: Hashable {
+    var text: String
+    var help: String
+    var colorName: String
+
+    var color: NSColor { Self.color(named: colorName) }
+
+    static func color(named name: String) -> NSColor {
+        switch name {
+        case "blue": .systemBlue
+        case "purple": .systemPurple
+        default: .secondaryLabelColor
+        }
+    }
+
+    static func labels(for item: ResultItem, details: MatchDetails?) -> [MatchLabel] {
+        let result = item.result
+        var labels: [MatchLabel] = []
+        if result.matchedName {
+            labels.append(MatchLabel(text: "Name", help: "The name matches", colorName: "gray"))
+        }
+        if !item.lines.isEmpty {
+            let count = item.lines.count
+            labels.append(MatchLabel(text: count == 1 ? "Line \(item.lines[0].number)" : "\(count) lines",
+                                     help: "Matching lines in the file", colorName: "blue"))
+        } else if result.matchedContent {
+            let base = result.kind == .image ? "Text in image" : "Contents"
+            let count = details?.matchCount ?? 0
+            labels.append(MatchLabel(text: count > 1 ? "\(base) · \(count)" : base,
+                                     help: count > 1 ? "\(count) matching lines" : "The text inside matches",
+                                     colorName: "blue"))
+        }
+        if result.matchedMeaning {
+            labels.append(MatchLabel(text: "Meaning", help: "Related in meaning to your words", colorName: "purple"))
+        }
+        if result.isCloudOnly {
+            labels.append(MatchLabel(text: "Cloud", help: "Not downloaded; indexed by name only", colorName: "gray"))
+        }
+        return labels
     }
 }
