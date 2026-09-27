@@ -23,6 +23,12 @@ struct ContentExtractor: Sendable {
         self.ocrLimiter = ocrLimiter
     }
 
+    /// Formats whose extracted text is stored (`doc_text`): re-extracting them for snippets,
+    /// regex or embeddings is slow. Text and code are simply re-read from disk.
+    static func keepsExtractedText(_ kind: FileKind) -> Bool {
+        kind == .pdf || kind == .document || kind == .image
+    }
+
     /// Unknown-format files above this size are not sniffed for text.
     static let maxSniffBytes: Int64 = 4 * 1024 * 1024
     /// Pages OCR'd per scanned PDF.

@@ -17,7 +17,8 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var matchedName: Bool
     public var matchedContent: Bool
     public var matchedMeaning: Bool
-    /// Content excerpt; matched spans are wrapped in `SearchResult.highlightStart`/`End`.
+    /// Content excerpt, filled by `SearchEngine.snippet(for:query:)`; matched spans are wrapped
+    /// in `highlightStart`/`highlightEnd`.
     public var snippet: String?
     public var score: Double
 
@@ -70,23 +71,26 @@ public final class SearchEngine: Sendable {
     private func nameMatches(_ query: SearchQuery, db: Database, limit: Int) throws -> [SearchResult] {
         let words = query.terms + query.nameTerms + query.phrases
         guard query.contentTerms.isEmpty, !words.isEmpty else { return [] }
-        // Trigram FTS needs 3+ characters; shorter words use LIKE on the candidate set.
+        // Trigram FTS needs 3+ characters; shorter words become a filename prefix match.
         let folded = words.map(\.searchFolded)
         let long = folded.filter { $0.count >= 3 }
         let short = folded.filter { $0.count < 3 }
         var filter = FilterSQL(query: query, home: home)
         for word in short {
-            filter.add("f.nameKey LIKE ? ESCAPE '\\'", "%" + Self.escapeLike(word) + "%")
+            filter.add("f.name LIKE ? ESCAPE '\\'", Self.escapeLike(word) + "%")
         }
         if long.isEmpty {
+            // Prefix match without ORDER BY, so the scan stops at the first `limit` hits
+            // instead of sorting millions of rows while the user is still typing.
             return try Row.fetchAll(db, sql: """
-                SELECT \(Self.columns), 0 AS rank FROM file f WHERE \(filter.clause)
-                ORDER BY length(f.name), f.mtime DESC LIMIT ?
+                SELECT \(Self.columns), 0 AS rank FROM file f JOIN dir d ON d.id = f.dirId
+                WHERE \(filter.clause) LIMIT ?
                 """, arguments: filter.arguments + [limit]).map { Self.result(from: $0, name: true) }
         }
         let match = long.map(Self.quote).joined(separator: " AND ")
         return try Row.fetchAll(db, sql: """
-            SELECT \(Self.columns), name_fts.rank AS rank FROM name_fts JOIN file f ON f.id = name_fts.rowid
+            SELECT \(Self.columns), name_fts.rank AS rank
+            FROM name_fts JOIN file f ON f.id = name_fts.rowid JOIN dir d ON d.id = f.dirId
             WHERE name_fts MATCH ? AND \(filter.clause)
             ORDER BY name_fts.rank LIMIT ?
             """, arguments: [match] + filter.arguments + [limit]).map { Self.result(from: $0, name: true) }
@@ -98,10 +102,9 @@ public final class SearchEngine: Sendable {
         parts += query.phrases.map(Self.quote)
         guard !parts.isEmpty else { return [] }
         let filter = FilterSQL(query: query, home: home)
-        let snippet = "snippet(content_fts, 0, char(1), char(2), '…', 20)"
         return try Row.fetchAll(db, sql: """
-            SELECT \(Self.columns), content_fts.rank AS rank, \(snippet) AS snippet
-            FROM content_fts JOIN file f ON f.id = content_fts.rowid
+            SELECT \(Self.columns), content_fts.rank AS rank
+            FROM content_fts JOIN file f ON f.id = content_fts.rowid JOIN dir d ON d.id = f.dirId
             WHERE content_fts MATCH ? AND \(filter.clause)
             ORDER BY content_fts.rank LIMIT ?
             """, arguments: [parts.joined(separator: " AND ")] + filter.arguments + [limit]
@@ -122,7 +125,8 @@ public final class SearchEngine: Sendable {
         let filter = FilterSQL(query: query, home: home)
         return try database.pool.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT \(Self.columns) FROM file f WHERE \(filter.clause) ORDER BY f.mtime DESC LIMIT ?
+                SELECT \(Self.columns) FROM file f JOIN dir d ON d.id = f.dirId
+                WHERE \(filter.clause) ORDER BY f.mtime DESC LIMIT ?
                 """, arguments: filter.arguments + [limit]).map { Self.result(from: $0) }
         }
     }
@@ -139,7 +143,6 @@ public final class SearchEngine: Sendable {
                 existing.score += contribution
                 existing.matchedName = existing.matchedName || hit.matchedName
                 existing.matchedContent = existing.matchedContent || hit.matchedContent
-                existing.snippet = existing.snippet ?? hit.snippet
                 byID[hit.id] = existing
             } else {
                 var hit = hit
@@ -198,7 +201,7 @@ public final class SearchEngine: Sendable {
             for term in query.excludedTerms {
                 let folded = term.searchFolded
                 excluded.formUnion(try Int64.fetchAll(db, sql: """
-                    SELECT id FROM file WHERE id IN (\(idList)) AND nameKey LIKE ? ESCAPE '\\'
+                    SELECT id FROM file WHERE id IN (\(idList)) AND name LIKE ? ESCAPE '\\'
                     """, arguments: ["%" + Self.escapeLike(folded) + "%"]))
                 if let match = Self.prefixTerm(term) {
                     excluded.formUnion(try Int64.fetchAll(db, sql: """
@@ -215,36 +218,60 @@ public final class SearchEngine: Sendable {
         let idList = ids.map(String.init).joined(separator: ",")
         return try database.pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT \(Self.columns), snippet(content_fts, 0, char(1), char(2), '…', 20) AS snippet
-                FROM file f LEFT JOIN content_fts ON content_fts.rowid = f.id
+                SELECT \(Self.columns) FROM file f JOIN dir d ON d.id = f.dirId
                 WHERE f.id IN (\(idList)) AND \(filter.clause)
                 """, arguments: filter.arguments)
             return Dictionary(uniqueKeysWithValues: rows.map { row in
-                var hit = Self.result(from: row)
-                hit.snippet = Self.leadingExcerpt(row["snippet"])
+                let hit = Self.result(from: row)
                 return (hit.id, hit)
             })
         }
     }
 
-    /// `snippet()` without a MATCH returns the column start; keep it short.
-    private static func leadingExcerpt(_ text: String?) -> String? {
-        guard let text, !text.isEmpty else { return nil }
-        let collapsed = text.split(whereSeparator: \.isWhitespace).prefix(30).joined(separator: " ")
-        return collapsed.isEmpty ? nil : collapsed + "…"
+    // MARK: - Snippets
+
+    /// Bytes read from a text file to build its snippet.
+    static let snippetReadBytes = 256 * 1024
+
+    /// An excerpt showing why `result` matched, read on demand (the content index stores no text).
+    ///
+    /// Uses the stored text for PDFs, Office files and OCR'd images, and reads the file head
+    /// for text and code. Returns nil when no excerpt applies (e.g. a filename-only match).
+    public func snippet(for result: SearchResult, query: SearchQuery) async throws -> String? {
+        guard result.matchedContent || result.matchedMeaning, !result.isDirectory, !result.isCloudOnly else { return nil }
+        let text: String?
+        if ContentExtractor.keepsExtractedText(result.kind) {
+            text = try await database.pool.read { db in
+                try String.fetchOne(db, sql: "SELECT body FROM doc_text WHERE fileId = ?", arguments: [result.id])
+            }
+        } else {
+            text = try Self.readHead(of: result.path)
+        }
+        guard let text else { return nil }
+        let terms = query.terms + query.contentTerms + query.phrases
+        if let snippet = Snippet.make(from: text, terms: terms) { return snippet }
+        return result.matchedMeaning ? Snippet.lead(of: text) : nil
+    }
+
+    private static func readHead(of path: String) throws -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try handle.read(upToCount: snippetReadBytes), !data.isEmpty else { return nil }
+        return ContentExtractor.decodeText(data)
     }
 
     // MARK: - SQL helpers
 
-    static let columns = "f.id, f.path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly"
+    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly"
 
     static func result(from row: Row, name: Bool = false, content: Bool = false) -> SearchResult {
+        // Snippets are built on demand by `snippet(for:query:)`.
         SearchResult(
             id: row["id"], path: row["path"], name: row["name"], ext: row["ext"],
             kind: FileKind(rawValue: row["kind"]) ?? .other, isDirectory: row["isDir"], size: row["size"],
             modified: Date(timeIntervalSince1970: row["mtime"]), created: Date(timeIntervalSince1970: row["btime"]),
             isCloudOnly: row["isCloudOnly"], matchedName: name, matchedContent: content, matchedMeaning: false,
-            snippet: content ? row["snippet"] : nil, score: 0
+            snippet: nil, score: 0
         )
     }
 
@@ -267,7 +294,7 @@ public final class SearchEngine: Sendable {
     }
 }
 
-/// Builds the WHERE clause for metadata filters on table alias `f`.
+/// Builds the WHERE clause for metadata filters on aliases `f` (file) and `d` (its dir).
 struct FilterSQL {
     private(set) var conditions: [String] = []
     private(set) var arguments: StatementArguments = []
@@ -290,11 +317,11 @@ struct FilterSQL {
             add("f.btime >= ? AND f.btime < ?", values: [created.start.timeIntervalSince1970, created.end.timeIntervalSince1970])
         }
         if !query.folders.isEmpty {
-            let clauses = query.folders.map { _ in "(f.path >= ? AND f.path < ?)" }.joined(separator: " OR ")
-            add("(\(clauses))", values: query.folders.flatMap { [$0 + "/", $0 + "0"] })
+            let clauses = query.folders.map { _ in "(d.path = ? OR (d.path >= ? AND d.path < ?))" }.joined(separator: " OR ")
+            add("(\(clauses))", values: query.folders.flatMap { [$0, $0 + "/", $0 + "0"] })
         }
         if let hidden = query.hidden {
-            add(hidden ? "(f.isHidden = 1 OR f.path LIKE '%/.%')" : "(f.isHidden = 0 AND f.path NOT LIKE '%/.%')")
+            add(hidden ? "(f.isHidden = 1 OR d.path LIKE '%/.%')" : "(f.isHidden = 0 AND d.path NOT LIKE '%/.%')")
         }
         if let cloud = query.cloudOnly {
             add("f.isCloudOnly = ?", cloud)

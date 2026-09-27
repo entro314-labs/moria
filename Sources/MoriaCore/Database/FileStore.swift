@@ -17,85 +17,118 @@ struct ExtractionResult: Sendable {
     var mtime: Double
     var state: ContentState
     var text: String?
+    /// Keep the text in `doc_text` (formats that are expensive to re-extract).
+    var storeText: Bool
 }
 
-extension IndexDatabase {
-    /// Inserts or updates metadata rows. A row whose size, mtime or cloud state changed goes
-    /// back to `pending` (or `none`/`cloudOnly`), which drops its old content via trigger.
-    func upsert(_ batch: [FileMeta], generation: Int, maxFileBytes: Int64) throws {
-        try pool.write { db in
-            let statement = try db.cachedStatement(sql: """
-                INSERT INTO file (path, name, nameKey, ext, parent, isDir, size, mtime, btime, kind,
+/// Writes metadata rows, resolving folder paths to `dir` ids.
+///
+/// Holds a path-to-id cache for the lifetime of one scan: crawls visit a folder before its
+/// children, so every parent lookup after the first is a dictionary hit.
+struct MetadataWriter {
+    let generation: Int
+    let maxFileBytes: Int64
+    private var dirIDs: [String: Int64] = [:]
+
+    init(generation: Int, maxFileBytes: Int64) {
+        self.generation = generation
+        self.maxFileBytes = maxFileBytes
+    }
+
+    mutating func write(_ batch: [FileMeta], to database: IndexDatabase) throws {
+        try database.pool.write { db in
+            let upsertFile = try db.cachedStatement(sql: """
+                INSERT INTO file (dirId, name, ext, isDir, size, mtime, btime, kind,
                                   isHidden, isCloudOnly, contentState, seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(path) DO UPDATE SET
-                    size = excluded.size, mtime = excluded.mtime, btime = excluded.btime,
-                    kind = excluded.kind, isHidden = excluded.isHidden, isCloudOnly = excluded.isCloudOnly,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(dirId, name) DO UPDATE SET
+                    ext = excluded.ext, isDir = excluded.isDir, size = excluded.size,
+                    mtime = excluded.mtime, btime = excluded.btime, kind = excluded.kind,
+                    isHidden = excluded.isHidden, isCloudOnly = excluded.isCloudOnly,
                     seen = excluded.seen,
                     contentState = CASE
                         WHEN file.mtime != excluded.mtime OR file.size != excluded.size
                              OR file.isCloudOnly != excluded.isCloudOnly
-                        THEN excluded.contentState ELSE file.contentState END
+                        THEN excluded.contentState
+                        -- Moved into a content-excluded location (or scope settings changed).
+                        WHEN excluded.contentState = 2 AND file.contentState IN (0, 1, 3) THEN 2
+                        ELSE file.contentState END
                 """)
             for meta in batch {
-                let state: ContentState = if meta.isDir || meta.size == 0 || meta.size > maxFileBytes {
-                    .none
-                } else if meta.isCloudOnly {
-                    .cloudOnly
-                } else if Self.neverHasText(meta.kind) {
-                    .none
-                } else {
-                    .pending
-                }
-                try statement.execute(arguments: [
-                    meta.path, meta.name, meta.name.searchFolded, meta.ext, meta.parent, meta.isDir,
-                    meta.size, meta.mtime, meta.btime, meta.kind.rawValue, meta.isHidden,
-                    meta.isCloudOnly, state.rawValue, generation,
+                let parentID = try dirID(for: (meta.path as NSString).deletingLastPathComponent, db: db)
+                if meta.isDir { _ = try dirID(for: meta.path, db: db) }
+                try upsertFile.execute(arguments: [
+                    parentID, meta.name, meta.ext, meta.isDir, meta.size, meta.mtime, meta.btime,
+                    meta.kind.rawValue, meta.isHidden, meta.isCloudOnly, initialState(meta).rawValue, generation,
                 ])
             }
         }
     }
 
-    private static func neverHasText(_ kind: FileKind) -> Bool {
-        switch kind {
-        case .folder, .application, .package, .audio, .video, .archive: true
-        case .document, .pdf, .image, .text, .code, .other: false
-        }
+    private mutating func dirID(for path: String, db: Database) throws -> Int64 {
+        if let cached = dirIDs[path] { return cached }
+        let id = try Int64.fetchOne(db, sql: """
+            INSERT INTO dir(path, seen) VALUES (?, ?)
+            ON CONFLICT(path) DO UPDATE SET seen = max(dir.seen, excluded.seen)
+            RETURNING id
+            """, arguments: [path, generation])!
+        dirIDs[path] = id
+        return id
     }
 
+    private func initialState(_ meta: FileMeta) -> ContentState {
+        if meta.isDir || !meta.contentEligible || meta.size == 0 || meta.size > maxFileBytes { return .none }
+        if meta.isCloudOnly { return .cloudOnly }
+        switch meta.kind {
+        case .folder, .application, .package, .audio, .video, .archive: return .none
+        case .document, .pdf, .image, .text, .code, .other: return .pending
+        }
+    }
+}
+
+extension IndexDatabase {
     /// Deletes `path` and everything below it.
     func deleteSubtree(_ path: String) throws {
         try pool.write { db in
-            try db.execute(
-                sql: "DELETE FROM file WHERE path = ? OR (path >= ? AND path < ?)",
-                arguments: [path, path + "/", path + "0"]  // "0" sorts right after "/"
-            )
+            let range: StatementArguments = [path, path + "/", path + "0"]  // "0" sorts right after "/"
+            try db.execute(sql: """
+                DELETE FROM file WHERE dirId IN (SELECT id FROM dir WHERE path = ? OR (path >= ? AND path < ?))
+                """, arguments: range)
+            try db.execute(sql: "DELETE FROM dir WHERE path = ? OR (path >= ? AND path < ?)", arguments: range)
+            try db.execute(sql: """
+                DELETE FROM file WHERE dirId = (SELECT id FROM dir WHERE path = ?) AND name = ?
+                """, arguments: [(path as NSString).deletingLastPathComponent, (path as NSString).lastPathComponent])
         }
     }
 
-    /// Deletes rows not seen by the scan with `generation` (removed or newly excluded files).
-    func pruneUnseen(before generation: Int) throws -> Int {
+    /// Deletes rows not seen by the scan with `generation` (removed or newly excluded entries).
+    func pruneUnseen(before generation: Int) throws {
         try pool.write { db in
             try db.execute(sql: "DELETE FROM file WHERE seen < ?", arguments: [generation])
-            return db.changesCount
+            try db.execute(sql: "DELETE FROM dir WHERE seen < ?", arguments: [generation])
         }
     }
 
-    /// Deletes rows below `path` that were not seen by `generation` (used after a subtree rescan).
+    /// Deletes rows below `path` that were not seen by `generation` (after a subtree rescan).
     func pruneUnseen(under path: String, before generation: Int) throws {
         try pool.write { db in
-            try db.execute(
-                sql: "DELETE FROM file WHERE seen < ? AND (path = ? OR (path >= ? AND path < ?))",
-                arguments: [generation, path, path + "/", path + "0"]
-            )
+            let arguments: StatementArguments = [generation, path, path + "/", path + "0"]
+            try db.execute(sql: """
+                DELETE FROM file WHERE seen < ?
+                  AND dirId IN (SELECT id FROM dir WHERE path = ? OR (path >= ? AND path < ?))
+                """, arguments: arguments)
+            try db.execute(sql: """
+                DELETE FROM dir WHERE seen < ? AND (path = ? OR (path >= ? AND path < ?))
+                """, arguments: arguments)
         }
     }
 
     func pendingFiles(limit: Int) throws -> [PendingFile] {
         try pool.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT id, path, ext, kind, size, mtime FROM file
-                WHERE contentState = 0 ORDER BY mtime DESC LIMIT ?
+                SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
+                FROM file f JOIN dir d ON d.id = f.dirId
+                WHERE f.contentState = 0 ORDER BY f.mtime DESC LIMIT ?
                 """, arguments: [limit]).map { row in
                 PendingFile(
                     id: row["id"], path: row["path"], ext: row["ext"],
@@ -103,6 +136,10 @@ extension IndexDatabase {
                 )
             }
         }
+    }
+
+    func pendingCount() throws -> Int {
+        try pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE contentState = 0") ?? 0 }
     }
 
     /// Writes extraction results. A result is dropped if the file changed since it was read
@@ -114,43 +151,48 @@ extension IndexDatabase {
                 """)
             let deleteContent = try db.cachedStatement(sql: "DELETE FROM content_fts WHERE rowid = ?")
             let insertContent = try db.cachedStatement(sql: "INSERT INTO content_fts(rowid, body) VALUES (?, ?)")
+            let storeText = try db.cachedStatement(sql: "INSERT OR REPLACE INTO doc_text(fileId, body) VALUES (?, ?)")
             for result in results {
                 try update.execute(arguments: [result.state.rawValue, result.id, result.mtime])
-                guard db.changesCount == 1, result.state == .indexed else { continue }
+                guard db.changesCount == 1, result.state == .indexed, let text = result.text else { continue }
                 try deleteContent.execute(arguments: [result.id])
-                if let text = result.text {
-                    try insertContent.execute(arguments: [result.id, text])
+                try insertContent.execute(arguments: [result.id, text])
+                if result.storeText {
+                    try storeText.execute(arguments: [result.id, text])
                 }
             }
         }
     }
 
-    /// Resets every file with extracted content (or failures) to pending, e.g. after
-    /// extraction settings changed.
+    /// Resets extracted (or failed/skipped) files to pending, e.g. after extraction settings changed.
     public func requeueContent() throws {
         try pool.write { db in
-            try db.execute(sql: "UPDATE file SET contentState = 0 WHERE contentState IN (1, 2, 3) AND isDir = 0 AND isCloudOnly = 0 AND size > 0")
+            try db.execute(sql: """
+                UPDATE file SET contentState = 0
+                WHERE contentState IN (1, 2, 3) AND isDir = 0 AND isCloudOnly = 0 AND size > 0
+                """)
         }
     }
-}
 
-extension IndexDatabase {
-    func pendingCount() throws -> Int {
-        try pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE contentState = 0") ?? 0 }
+    /// Stored text for a file, if its format keeps one (PDF, Office, OCR'd images).
+    public func storedText(fileID: Int64) throws -> String? {
+        try pool.read { db in try String.fetchOne(db, sql: "SELECT body FROM doc_text WHERE fileId = ?", arguments: [fileID]) }
     }
+
+    // MARK: - Embeddings
 
     /// Indexed documents without embeddings. Code, `~/Library` and hidden paths are excluded:
     /// the sentence model is trained on prose, and those files dominate counts without helping.
-    func filesNeedingEmbedding(limit: Int, home: String = NSHomeDirectory()) throws -> [(Int64, String)] {
+    func filesNeedingEmbedding(limit: Int, home: String = NSHomeDirectory()) throws -> [(id: Int64, path: String, kind: FileKind)] {
         try pool.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT f.id, c.body FROM file f JOIN content_fts c ON c.rowid = f.id
+                SELECT f.id, \(Self.pathSQL) AS path, f.kind FROM file f JOIN dir d ON d.id = f.dirId
                 WHERE f.embedState = 0 AND f.contentState = 1
                   AND f.kind IN ('document', 'pdf', 'text', 'image')
-                  AND NOT (f.path >= ? AND f.path < ?) AND f.path NOT LIKE '%/.%'
+                  AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'
                 LIMIT ?
-                """, arguments: [home + "/Library/", home + "/Library0", limit]
-            ).map { ($0[0], $0[1]) }
+                """, arguments: [home + "/Library", home + "/Library/", home + "/Library0", limit]
+            ).map { (id: $0["id"], path: $0["path"], kind: FileKind(rawValue: $0["kind"]) ?? .other) }
         }
     }
 

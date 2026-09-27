@@ -118,10 +118,13 @@ public actor IndexController {
         let crawlChanged = old.roots != new.roots || old.excludedPaths != new.excludedPaths
             || old.excludedNames != new.excludedNames || old.includeHidden != new.includeHidden
             || old.descendIntoPackages != new.descendIntoPackages
-        let extractionChanged = old.maxContentKilobytes != new.maxContentKilobytes
+        let scopeChanged = old.contentExcludedPaths != new.contentExcludedPaths
+            || old.contentExcludedNames != new.contentExcludedNames
+            || old.extractHiddenContent != new.extractHiddenContent
+        let extractionChanged = scopeChanged || old.maxContentKilobytes != new.maxContentKilobytes
             || old.maxFileMegabytes != new.maxFileMegabytes
             || old.ocrImages != new.ocrImages || old.ocrScannedPDFs != new.ocrScannedPDFs
-        if crawlChanged {
+        if crawlChanged || scopeChanged {
             fullScanRequested = true
             if watcher != nil { try startWatcher(since: nil) }
         }
@@ -221,17 +224,22 @@ public actor IndexController {
         publish(phase: .scanning)
         let eventID = FileWatcher.currentEventID
         let generation = try nextGeneration()
-        var crawler = Crawler(rules: CrawlRules(settings: settings))
-        for root in settings.roots {
-            try crawler.crawl(root: root) { batch in
+        var writer = MetadataWriter(generation: generation, maxFileBytes: maxFileBytes)
+        let crawl = PipelinedCrawl(rules: CrawlRules(settings: settings), roots: settings.roots)
+        do {
+            for try await batch in crawl.batches {
                 try Task.checkCancellation()
-                try database.upsert(batch, generation: generation, maxFileBytes: maxFileBytes)
+                try writer.write(batch, to: database)
                 state.scannedEntries += batch.count
+                crawl.batchConsumed()
                 if state.scannedEntries % 20000 < batch.count { publish(phase: .scanning) }
             }
+        } catch {
+            crawl.cancel()
+            throw error
         }
-        state.unreadableDirectories = crawler.unreadableDirectories
-        _ = try database.pruneUnseen(before: generation)
+        state.unreadableDirectories = crawl.unreadableDirectories
+        try database.pruneUnseen(before: generation)
         let now = Date()
         state.lastScanDate = now
         try database.setMeta(MetaKey.lastScan, String(now.timeIntervalSince1970))
@@ -262,7 +270,7 @@ public actor IndexController {
         var crawler = Crawler(rules: rules)
         var merged: [String: Bool] = [:]
         for change in changes { merged[change.path, default: false] = merged[change.path, default: false] || change.rescanSubtree }
-        let generation = try currentGeneration
+        var writer = try MetadataWriter(generation: currentGeneration, maxFileBytes: maxFileBytes)
         var metas: [FileMeta] = []
         for (path, rescan) in merged.sorted(by: { $0.key < $1.key }) {
             guard isUnderRoots(path), !rules.isExcludedAnywhere(path: path),
@@ -273,8 +281,9 @@ public actor IndexController {
             }
             if rescan, meta.isDir, !crawler.isOpaquePackage(path: path) {
                 let subtreeGeneration = try nextGeneration()
+                var subtreeWriter = MetadataWriter(generation: subtreeGeneration, maxFileBytes: maxFileBytes)
                 try crawler.crawl(root: path) { batch in
-                    try database.upsert(batch, generation: subtreeGeneration, maxFileBytes: maxFileBytes)
+                    try subtreeWriter.write(batch, to: database)
                 }
                 try database.pruneUnseen(under: path, before: subtreeGeneration)
             } else {
@@ -282,7 +291,7 @@ public actor IndexController {
             }
         }
         if !metas.isEmpty {
-            try database.upsert(metas, generation: generation, maxFileBytes: maxFileBytes)
+            try writer.write(metas, to: database)
         }
     }
 
@@ -349,15 +358,18 @@ public actor IndexController {
               Crawler.seconds(st.st_mtimespec) == file.mtime, Int64(st.st_size) == file.size
         else { return .changed(file.path) }
         guard file.size <= maxFileBytes else {
-            return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: .none, text: nil))
+            return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: .none, text: nil, storeText: false))
         }
+        let storeText = ContentExtractor.keepsExtractedText(file.kind)
         do {
             let text = try await extractor.extract(path: file.path, ext: file.ext, kind: file.kind, size: file.size)
-            return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: text == nil ? .none : .indexed, text: text))
+            return .result(ExtractionResult(
+                id: file.id, mtime: file.mtime, state: text == nil ? .none : .indexed, text: text, storeText: storeText
+            ))
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: .failed, text: nil))
+            return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: .failed, text: nil, storeText: false))
         }
     }
 
@@ -368,10 +380,16 @@ public actor IndexController {
         let batch = try database.filesNeedingEmbedding(limit: 64)
         guard !batch.isEmpty else { return false }
         publish(phase: .embedding)
+        let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter)
         var vectors: [(id: Int64, chunks: [[Float]])] = []
-        for (id, text) in batch {
+        for file in batch {
             try Task.checkCancellation()
-            vectors.append((id, try await embedder.embedDocument(text)))
+            // Documents keep their extracted text; plain text is re-read from the file.
+            let text = try ContentExtractor.keepsExtractedText(file.kind)
+                ? database.storedText(fileID: file.id)
+                : extractor.readText(URL(fileURLWithPath: file.path))
+            let chunks = if let text { try await embedder.embedDocument(text) } else { [[Float]]() }
+            vectors.append((file.id, chunks))
         }
         try database.storeEmbeddings(vectors)
         state.embeddedFiles += batch.count

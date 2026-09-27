@@ -90,3 +90,15 @@ struct ExtractorTests {
         #expect(chunks.allSatisfy { $0.count <= Embedder.chunkCharacters + 1 })
     }
 }
+
+struct SnippetTests {
+    @Test func highlightsFoldedMatchesInAWindow() {
+        let text = String(repeating: "filler ", count: 40) + "Η Απόδειξη ενοικίου για τον Σεπτέμβριο.\nNext line" + String(repeating: " tail", count: 40)
+        let snippet = Snippet.make(from: text, terms: ["αποδειξη", "ενοικιου"])!
+        #expect(snippet.hasPrefix("…"))
+        #expect(snippet.hasSuffix("…"))
+        #expect(snippet.contains("\u{1}Απόδειξη\u{2} \u{1}ενοικίου\u{2}"))
+        #expect(!snippet.contains("\n"))
+        #expect(Snippet.make(from: text, terms: ["missing"]) == nil)
+    }
+}

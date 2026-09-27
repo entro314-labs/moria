@@ -11,6 +11,11 @@ extension String {
     }
 }
 
+/// `moria_fold(text)`: `searchFolded` as an SQL function, used to fill the filename index.
+let foldFunction = DatabaseFunction("moria_fold", argumentCount: 1, pure: true) { values in
+    String.fromDatabaseValue(values[0])?.searchFolded
+}
+
 /// FTS5 tokenizer that wraps `unicode61` and folds non-ASCII tokens with `searchFolded`.
 ///
 /// Registered on every connection under the name `moria_fold`. Stored text keeps its

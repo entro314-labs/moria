@@ -126,9 +126,11 @@ struct Search: AsyncParsableCommand {
             parsed = interpretation.query
             FileHandle.standardError.write(Data("interpreted: \(interpretation.summary)\n".utf8))
         }
-        let results = try await SearchEngine(database: db).search(parsed, limit: limit, semantic: semantic)
+        let engine = SearchEngine(database: db)
+        let results = try await engine.search(parsed, limit: limit, semantic: semantic)
         let elapsed = Date().timeIntervalSince(started) * 1000
-        for result in results {
+        for var result in results {
+            result.snippet = try await engine.snippet(for: result, query: parsed)
             if json {
                 print(Self.json(result))
             } else {

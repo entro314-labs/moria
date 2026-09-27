@@ -46,6 +46,10 @@ struct IndexTests {
         #expect(try await search(engine, "bundle").isEmpty)
         #expect(try await search(engine, "Tools") == ["Tools.app"])
 
+        // Snippets come from the file (text) since the content index stores no text.
+        let hit = try await engine.search(QueryParser().parse("apartment")).first!
+        #expect(try await engine.snippet(for: hit, query: QueryParser().parse("apartment"))?.contains("\u{1}apartment\u{2}") == true)
+
         let stats = try database.stats()
         #expect(stats.contentPending == 0)
         #expect(stats.contentIndexed == 4)

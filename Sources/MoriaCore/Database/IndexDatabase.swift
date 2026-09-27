@@ -36,7 +36,12 @@ public final class IndexDatabase: Sendable {
         var config = Configuration()
         config.prepareDatabase { db in
             db.add(tokenizer: FoldingTokenizer.self)
-            try db.execute(sql: "PRAGMA synchronous = NORMAL; PRAGMA journal_size_limit = 67108864")
+            db.add(function: foldFunction)
+            // Checkpoint every ~80 MB of WAL instead of 4 MB: bulk scans write millions of rows.
+            try db.execute(sql: """
+                PRAGMA synchronous = NORMAL; PRAGMA journal_size_limit = 67108864;
+                PRAGMA cache_size = -65536; PRAGMA wal_autocheckpoint = 20000
+                """)
         }
         pool = try DatabasePool(path: url.path, configuration: config)
         try Self.migrator.migrate(pool)
@@ -46,13 +51,19 @@ public final class IndexDatabase: Sendable {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1") { db in
             try db.execute(sql: """
-                CREATE TABLE file (
+                -- Folders keep their full path; files store only (dirId, name). Paths are the
+                -- bulk of an index of millions of entries, and there are ~5x more files than
+                -- folders. Path-range queries on `dir.path` give fast subtree operations.
+                CREATE TABLE dir (
                     id INTEGER PRIMARY KEY,
                     path TEXT NOT NULL UNIQUE,
+                    seen INTEGER NOT NULL
+                );
+                CREATE TABLE file (
+                    id INTEGER PRIMARY KEY,
+                    dirId INTEGER NOT NULL,
                     name TEXT NOT NULL,
-                    nameKey TEXT NOT NULL,
                     ext TEXT NOT NULL,
-                    parent TEXT NOT NULL,
                     isDir INTEGER NOT NULL,
                     size INTEGER NOT NULL,
                     mtime REAL NOT NULL,
@@ -62,19 +73,25 @@ public final class IndexDatabase: Sendable {
                     isCloudOnly INTEGER NOT NULL,
                     contentState INTEGER NOT NULL,
                     embedState INTEGER NOT NULL DEFAULT 0,
-                    seen INTEGER NOT NULL
+                    seen INTEGER NOT NULL,
+                    UNIQUE (dirId, name)
                 );
                 CREATE INDEX file_mtime ON file(mtime);
-                CREATE INDEX file_size ON file(size);
-                CREATE INDEX file_ext ON file(ext);
-                CREATE INDEX file_kind ON file(kind);
-                CREATE INDEX file_pending ON file(contentState, mtime);
-                CREATE INDEX file_embed_pending ON file(embedState, contentState);
+                -- Partial indexes stay tiny once the backlog is processed.
+                CREATE INDEX file_pending ON file(mtime) WHERE contentState = 0;
+                CREATE INDEX file_embed_pending ON file(id) WHERE embedState = 0 AND contentState = 1;
 
+                -- Both FTS tables are contentless: they keep only the inverted index (about a
+                -- quarter of the raw text size, versus 1.4x when the text is stored as well).
                 CREATE VIRTUAL TABLE name_fts USING fts5(
-                    nameKey, content='file', content_rowid='id', tokenize='trigram'
+                    nameKey, content='', contentless_delete=1, tokenize='trigram'
                 );
-                CREATE VIRTUAL TABLE content_fts USING fts5(body, tokenize='moria_fold');
+                CREATE VIRTUAL TABLE content_fts USING fts5(
+                    body, content='', contentless_delete=1, tokenize='moria_fold'
+                );
+                -- Extracted text is stored only where re-extracting it is expensive (PDF, Office,
+                -- OCR). Snippets for text and code files are read from the file itself.
+                CREATE TABLE doc_text (fileId INTEGER PRIMARY KEY, body TEXT NOT NULL);
                 CREATE TABLE chunk_vec (
                     fileId INTEGER NOT NULL,
                     chunk INTEGER NOT NULL,
@@ -84,11 +101,12 @@ public final class IndexDatabase: Sendable {
                 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
                 CREATE TRIGGER file_ai AFTER INSERT ON file BEGIN
-                    INSERT INTO name_fts(rowid, nameKey) VALUES (new.id, new.nameKey);
+                    INSERT INTO name_fts(rowid, nameKey) VALUES (new.id, moria_fold(new.name));
                 END;
                 CREATE TRIGGER file_ad AFTER DELETE ON file BEGIN
-                    INSERT INTO name_fts(name_fts, rowid, nameKey) VALUES ('delete', old.id, old.nameKey);
+                    DELETE FROM name_fts WHERE rowid = old.id;
                     DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM doc_text WHERE fileId = old.id;
                     DELETE FROM chunk_vec WHERE fileId = old.id;
                 END;
                 -- Content is dropped as soon as a file leaves the indexed state (modified, became
@@ -96,6 +114,7 @@ public final class IndexDatabase: Sendable {
                 CREATE TRIGGER file_content_invalidated AFTER UPDATE OF contentState ON file
                 WHEN old.contentState = 1 AND new.contentState != 1 BEGIN
                     DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM doc_text WHERE fileId = old.id;
                     DELETE FROM chunk_vec WHERE fileId = old.id;
                 END;
                 """)
@@ -130,6 +149,9 @@ public final class IndexDatabase: Sendable {
     }
 
     // MARK: - Stats
+
+    /// SQL expression for an entry's full path (`f` = file, `d` = its dir).
+    static let pathSQL = "(CASE d.path WHEN '/' THEN '/' || f.name ELSE d.path || '/' || f.name END)"
 
     public struct Stats: Sendable, Equatable {
         public var files: Int

@@ -14,6 +14,12 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
     public var includeHidden: Bool
     /// When false, bundles such as `.app` or `.photoslibrary` are indexed as a single item.
     public var descendIntoPackages: Bool
+    /// Paths whose files are indexed by name only (no text extraction).
+    public var contentExcludedPaths: [String]
+    /// Folder names whose files are indexed by name only: dependency and build output.
+    public var contentExcludedNames: [String]
+    /// Extract text inside hidden folders (`.cargo`, `.cache`, ...). Off: names only.
+    public var extractHiddenContent: Bool
     /// Maximum extracted text stored per file.
     public var maxContentKilobytes: Int
     /// Files larger than this are indexed by name and metadata only.
@@ -42,6 +48,13 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
             ],
             includeHidden: true,
             descendIntoPackages: false,
+            contentExcludedPaths: ["\(home)/Library"],
+            contentExcludedNames: [
+                "venv", ".venv", "env", "site-packages", "__pycache__", "target", "dist", "build", "out",
+                "Pods", "Carthage", "vendor", ".next", ".nuxt", "bower_components", "jspm_packages",
+                ".gradle", ".m2", ".cargo", ".rustup", ".npm", ".pnpm-store", ".yarn",
+            ],
+            extractHiddenContent: false,
             maxContentKilobytes: 256,
             maxFileMegabytes: 100,
             ocrImages: true,

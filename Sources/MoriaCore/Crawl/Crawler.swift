@@ -6,7 +6,6 @@ public struct FileMeta: Sendable, Equatable {
     public var path: String
     public var name: String
     public var ext: String
-    public var parent: String
     public var isDir: Bool
     public var size: Int64
     public var mtime: Double
@@ -15,6 +14,8 @@ public struct FileMeta: Sendable, Equatable {
     public var isHidden: Bool
     /// A cloud-provider placeholder (`SF_DATALESS`): metadata is local, content is not.
     public var isCloudOnly: Bool
+    /// False inside content-excluded locations: indexed by name only.
+    public var contentEligible: Bool = true
 }
 
 /// Rules deciding which entries a crawl visits.
@@ -23,12 +24,34 @@ struct CrawlRules: Sendable {
     var excludedNames: Set<String>
     var includeHidden: Bool
     var descendIntoPackages: Bool
+    var contentExcludedPaths: Set<String>
+    var contentExcludedNames: Set<String>
+    var extractHiddenContent: Bool
 
     init(settings: MoriaSettings) {
         excludedPaths = Set(settings.excludedPaths.map { ($0 as NSString).standardizingPath })
         excludedNames = Set(settings.excludedNames)
         includeHidden = settings.includeHidden
         descendIntoPackages = settings.descendIntoPackages
+        contentExcludedPaths = Set(settings.contentExcludedPaths.map { ($0 as NSString).standardizingPath })
+        contentExcludedNames = Set(settings.contentExcludedNames)
+        extractHiddenContent = settings.extractHiddenContent
+    }
+
+    /// Whether a folder (or file) itself turns off content extraction for its subtree.
+    func excludesContent(path: String, name: String) -> Bool {
+        contentExcludedNames.contains(name) || contentExcludedPaths.contains(path)
+            || (!extractHiddenContent && name.hasPrefix("."))
+    }
+
+    /// Content eligibility of an arbitrary path, checking every ancestor below `/`.
+    func isContentEligible(path: String) -> Bool {
+        var current = path
+        while current.count > 1 {
+            if excludesContent(path: current, name: (current as NSString).lastPathComponent) { return false }
+            current = (current as NSString).deletingLastPathComponent
+        }
+        return true
     }
 
     func isExcluded(path: String, name: String) -> Bool {
@@ -70,6 +93,8 @@ struct Crawler {
         let rootCopy = strdup(root)
         defer { free(rootCopy) }
         var argv: [UnsafeMutablePointer<CChar>?] = [rootCopy, nil]
+        // excludedAtLevel[n]: content is excluded for entries at depth n (inherited downward).
+        var excludedAtLevel = [!rules.isContentEligible(path: (root as NSString).deletingLastPathComponent)]
         guard let fts = fts_open(&argv, FTS_PHYSICAL | FTS_NOCHDIR | FTS_XDEV, nil) else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
@@ -95,6 +120,13 @@ struct Crawler {
             let st = statp.pointee
 
             let isDir = info == FTS_D || info == FTS_DNR
+            let level = Int(entry.pointee.fts_level)
+            let inheritedExclusion = excludedAtLevel[min(level, excludedAtLevel.count - 1)]
+            let contentExcluded = inheritedExclusion || rules.excludesContent(path: path, name: name)
+            if isDir {
+                if excludedAtLevel.count <= level + 1 { excludedAtLevel.append(contentExcluded) }
+                else { excludedAtLevel[level + 1] = contentExcluded }
+            }
             let ext = Self.extensionOf(name)
             let (kind, isPackage) = classifier.classify(ext: ext, isDirectory: isDir)
             if isDir, isPackage, !rules.descendIntoPackages, !isRoot {
@@ -105,14 +137,14 @@ struct Crawler {
                 path: path,
                 name: name,
                 ext: ext,
-                parent: isRoot ? (path as NSString).deletingLastPathComponent : Self.parent(of: path, nameCount: name.utf8.count),
                 isDir: isDir,
                 size: isDir ? 0 : Int64(st.st_size),
                 mtime: Self.seconds(st.st_mtimespec),
                 btime: Self.seconds(st.st_birthtimespec),
                 kind: kind,
                 isHidden: name.hasPrefix(".") || (st.st_flags & UInt32(UF_HIDDEN)) != 0,
-                isCloudOnly: (st.st_flags & UInt32(SF_DATALESS)) != 0
+                isCloudOnly: (st.st_flags & UInt32(SF_DATALESS)) != 0,
+                contentEligible: !contentExcluded
             ))
             if batch.count >= batchSize {
                 try visit(batch)
@@ -131,11 +163,12 @@ struct Crawler {
         let ext = Self.extensionOf(name)
         let kind = classifier.classify(ext: ext, isDirectory: isDir).kind
         return FileMeta(
-            path: path, name: name, ext: ext, parent: (path as NSString).deletingLastPathComponent,
+            path: path, name: name, ext: ext,
             isDir: isDir, size: isDir ? 0 : Int64(st.st_size),
             mtime: Self.seconds(st.st_mtimespec), btime: Self.seconds(st.st_birthtimespec),
             kind: kind, isHidden: name.hasPrefix(".") || (st.st_flags & UInt32(UF_HIDDEN)) != 0,
-            isCloudOnly: (st.st_flags & UInt32(SF_DATALESS)) != 0
+            isCloudOnly: (st.st_flags & UInt32(SF_DATALESS)) != 0,
+            contentEligible: rules.isContentEligible(path: path)
         )
     }
 
@@ -153,11 +186,6 @@ struct Crawler {
     static func lastComponent(of path: String) -> String {
         guard let slash = path.utf8.lastIndex(of: UInt8(ascii: "/")) else { return path }
         return String(path[path.utf8.index(after: slash)...])
-    }
-
-    static func parent(of path: String, nameCount: Int) -> String {
-        let end = path.utf8.index(path.utf8.endIndex, offsetBy: -(nameCount + 1))
-        return end == path.utf8.startIndex ? "/" : String(path[..<end])
     }
 
     /// Lowercased extension without the dot; empty for dotfiles like `.zshrc`.

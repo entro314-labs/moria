@@ -17,7 +17,8 @@ public struct RegexHit: Sendable, Identifiable, Hashable {
 /// Regular-expression search over file names and contents.
 ///
 /// - Text and code files are searched in full by ripgrep, fed with paths from the index, so
-///   filters apply and cloud-only files are never opened (which would download them).
+///   filters apply and cloud-only files are never opened (which would download them). This
+///   includes code in content-excluded folders, which has no stored text.
 /// - PDFs, documents and OCR'd images have no searchable raw bytes; their extracted text is
 ///   matched from the index with `NSRegularExpression` instead.
 /// - File names are matched from the index.
@@ -58,6 +59,8 @@ public struct RegexSearcher: Sendable {
     /// Paths passed to one ripgrep invocation (kept well under ARG_MAX).
     static let pathsPerBatch = 1500
     static let linesPerFile = 20
+    /// Text and code files above this size (logs, dumps) are left out of regex search.
+    static let maxRipgrepFileBytes: Int64 = 50 * 1024 * 1024
 
     /// Streams hits: name matches first, then extracted-text matches, then ripgrep matches.
     public func search(pattern: String, filters: SearchQuery, caseSensitive: Bool = false, maxFiles: Int = 2000) -> AsyncThrowingStream<RegexHit, any Error> {
@@ -100,7 +103,10 @@ public struct RegexSearcher: Sendable {
         let filter = FilterSQL(query: filters, home: NSHomeDirectory())
         return try database.pool.read { db in
             var hits: [RegexHit] = []
-            let cursor = try Row.fetchCursor(db, sql: "SELECT f.id, f.path, f.name FROM file f WHERE \(filter.clause)", arguments: filter.arguments)
+            let cursor = try Row.fetchCursor(db, sql: """
+                SELECT f.id, \(IndexDatabase.pathSQL) AS path, f.name FROM file f JOIN dir d ON d.id = f.dirId
+                WHERE \(filter.clause)
+                """, arguments: filter.arguments)
             while let row = try cursor.next() {
                 let name: String = row["name"]
                 if regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil {
@@ -116,8 +122,9 @@ public struct RegexSearcher: Sendable {
         return try database.pool.read { db in
             var hits: [RegexHit] = []
             let cursor = try Row.fetchCursor(db, sql: """
-                SELECT f.id, f.path, c.body FROM file f JOIN content_fts c ON c.rowid = f.id
-                WHERE f.kind IN ('pdf', 'document', 'image') AND \(filter.clause)
+                SELECT f.id, \(IndexDatabase.pathSQL) AS path, t.body
+                FROM doc_text t JOIN file f ON f.id = t.fileId JOIN dir d ON d.id = f.dirId
+                WHERE \(filter.clause)
                 """, arguments: filter.arguments)
             while let row = try cursor.next() {
                 try Task.checkCancellation()
@@ -151,10 +158,12 @@ public struct RegexSearcher: Sendable {
                     let filter = FilterSQL(query: filters, home: NSHomeDirectory())
                     let candidates = try await database.pool.read { db in
                         try Row.fetchAll(db, sql: """
-                            SELECT f.id, f.path FROM file f
-                            WHERE f.kind IN ('text', 'code', 'other') AND f.contentState = 1 AND \(filter.clause)
+                            SELECT f.id, \(IndexDatabase.pathSQL) AS path FROM file f JOIN dir d ON d.id = f.dirId
+                            WHERE ((f.kind IN ('text', 'code') AND f.isCloudOnly = 0 AND f.size BETWEEN 1 AND ?)
+                                   OR (f.kind = 'other' AND f.contentState = 1))
+                              AND \(filter.clause)
                             ORDER BY f.mtime DESC
-                            """, arguments: filter.arguments).map { (id: $0["id"] as Int64, path: $0["path"] as String) }
+                            """, arguments: [Self.maxRipgrepFileBytes] + filter.arguments).map { (id: $0["id"] as Int64, path: $0["path"] as String) }
                     }
                     let ids = Dictionary(candidates.map { ($0.path, $0.id) }, uniquingKeysWith: { first, _ in first })
                     var start = 0
