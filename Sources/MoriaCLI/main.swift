@@ -140,9 +140,14 @@ struct Search: AsyncParsableCommand {
         }
         var parsed = QueryParser().parse(text)
         if ask {
-            let interpretation = try await NaturalLanguageQuery().interpret(text)
-            parsed = interpretation.query
-            FileHandle.standardError.write(Data("interpreted: \(interpretation.summary)\n".utf8))
+            do {
+                let interpretation = try await NaturalLanguageQuery().interpret(text)
+                parsed = interpretation.query
+                FileHandle.standardError.write(Data("interpreted: \(interpretation.summary)\n".utf8))
+            } catch {
+                // As in the app: a request that can't be interpreted still searches its words.
+                FileHandle.standardError.write(Data("couldn't interpret the request (\(error.localizedDescription)); searching the words\n".utf8))
+            }
         }
         let engine = SearchEngine(database: db)
         let results = try await engine.search(parsed, limit: limit, semantic: semantic)
