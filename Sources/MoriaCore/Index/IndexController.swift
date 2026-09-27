@@ -142,25 +142,17 @@ public actor IndexController {
             return String(cString: resolved)
         }
         let old = settings
-        settings = new
         try database.saveSettings(new)
-        let crawlChanged = old.roots != new.roots || old.excludedPaths != new.excludedPaths
-            || old.excludedNames != new.excludedNames || old.includeHidden != new.includeHidden
-            || old.descendIntoPackages != new.descendIntoPackages
-        let scopeChanged = old.contentExcludedPaths != new.contentExcludedPaths
-            || old.contentExcludedNames != new.contentExcludedNames
-            || old.extractHiddenContent != new.extractHiddenContent
+        try adopt(new)
         let limitsChanged = old.maxContentKilobytes != new.maxContentKilobytes
             || old.maxFileMegabytes != new.maxFileMegabytes
         var requeueKinds: Set<FileKind> = []
         if old.ocrImages != new.ocrImages { requeueKinds.insert(.image) }
         if old.ocrScannedPDFs != new.ocrScannedPDFs { requeueKinds.insert(.pdf) }
-        if crawlChanged || scopeChanged {
-            fullScanRequested = true
+        if Self.needsFullScan(from: old, to: new) {
             // Forget the resume point until that scan completes, so any controller (the app at
             // its next launch, after a change made by the CLI) scans instead of resuming.
             try database.setMeta(MetaKey.eventID, nil)
-            if watcher != nil { try startWatcher(since: nil) }
         }
         // Scope changes are applied by the full scan, which re-marks excluded files.
         if limitsChanged {
@@ -174,6 +166,39 @@ public actor IndexController {
         wake?.yield()
     }
 
+    /// Adopts settings another process (`moria config`) saved, so the running app neither
+    /// ignores them nor later overwrites them. That process already made the database-side
+    /// changes (resume point, requeued files, cleared embeddings).
+    @discardableResult
+    public func reloadSettings() throws -> MoriaSettings {
+        let stored = try database.loadSettings()
+        guard stored != settings else { return settings }
+        try adopt(stored)
+        wake?.yield()
+        return settings
+    }
+
+    /// The in-memory side of a settings change: a full scan, with a restarted watcher, when
+    /// what is crawled or read changed.
+    private func adopt(_ new: MoriaSettings) throws {
+        let old = settings
+        settings = new
+        if Self.needsFullScan(from: old, to: new) {
+            fullScanRequested = true
+            if watcher != nil { try startWatcher(since: nil) }
+        }
+    }
+
+    /// Crawl rules or content scope changed; the full scan re-marks excluded files.
+    private static func needsFullScan(from old: MoriaSettings, to new: MoriaSettings) -> Bool {
+        old.roots != new.roots || old.excludedPaths != new.excludedPaths
+            || old.excludedNames != new.excludedNames || old.includeHidden != new.includeHidden
+            || old.descendIntoPackages != new.descendIntoPackages
+            || old.contentExcludedPaths != new.contentExcludedPaths
+            || old.contentExcludedNames != new.contentExcludedNames
+            || old.extractHiddenContent != new.extractHiddenContent
+    }
+
     public func currentProgress() -> IndexProgress {
         state
     }
@@ -181,6 +206,11 @@ public actor IndexController {
     // MARK: - Work loop
 
     private func drainWork() async {
+        do {
+            try reloadSettings()
+        } catch {
+            state.lastError = String(describing: error)
+        }
         while !Task.isCancelled, !state.isPaused {
             do {
                 if fullScanRequested {

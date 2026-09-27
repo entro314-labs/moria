@@ -138,6 +138,28 @@ struct IndexTests {
         #expect(try await engine.search(QueryParser().parse("wombat")).map(\.name) == ["field.txt"])
     }
 
+    @Test func runningControllerAdoptsSettingsSavedElsewhere() async throws {
+        let (database, running) = try await TestSupport.makeIndex(root: root)
+        try await running.indexNow(full: true)
+        let extra = try TestSupport.makeTempDirectory()
+        try Data("wombat burrow survey".utf8).write(to: extra.appending(path: "field.txt"))
+
+        let cli = try IndexController(database: database)
+        var settings = await cli.settings
+        settings.roots.append(extra.path)
+        try await cli.updateSettings(settings)
+
+        #expect(try await running.reloadSettings().roots == [root.path, extra.path])
+        try await running.indexNow(full: false)
+        let engine = SearchEngine(database: database, home: root.path)
+        #expect(try await engine.search(QueryParser().parse("wombat")).map(\.name) == ["field.txt"])
+        // A later change from the running app keeps what the CLI set.
+        var mine = await running.settings
+        mine.ocrScannedPDFs = false
+        try await running.updateSettings(mine)
+        #expect(try database.loadSettings().roots == [root.path, extra.path])
+    }
+
     @Test func cancelledScanKeepsTheIndex() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

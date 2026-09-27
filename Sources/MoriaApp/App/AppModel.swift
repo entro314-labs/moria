@@ -136,6 +136,17 @@ final class AppModel {
         hasFullDiskAccess = granted
     }
 
+    /// Picks up settings changed by `moria config` while Moria was in the background.
+    func reloadSettings() {
+        Task {
+            do {
+                settings = try await controller.reloadSettings()
+            } catch {
+                lastError = "Settings could not be read: \(error)"
+            }
+        }
+    }
+
     func refreshStats() {
         lastStatsRefresh = Date()
         let database = database

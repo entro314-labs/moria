@@ -104,6 +104,7 @@ struct MainView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.refreshAccess()
+            app.reloadSettings()
         }
     }
 
