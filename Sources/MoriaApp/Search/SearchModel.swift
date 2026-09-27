@@ -126,7 +126,14 @@ final class SearchModel {
 
     var text = "" { didSet { if text != oldValue { textChanged() } } }
     var scope: SearchScope = .everything { didSet { if scope != oldValue { search() } } }
-    var filters = FilterState() { didSet { if filters != oldValue { search() } } }
+    var filters = FilterState() {
+        didSet {
+            guard filters != oldValue else { return }
+            // A Location stays selected in the sidebar only while its folder filter applies.
+            if case let .location(path) = sidebarSelection, filters.folder != path { sidebarSelection = nil }
+            search()
+        }
+    }
     /// Blend semantic matches into results (when semantic search is enabled in Settings).
     var useMeaning = false { didSet { if useMeaning != oldValue { search() } } }
     /// Interpret the text as a plain-language request (runs on Return, not per keystroke).
@@ -157,10 +164,15 @@ final class SearchModel {
     private(set) var recentFiles: [SearchResult] = []
 
     private(set) var items: [ResultItem] = []
-    var selection: Set<Int64> = []
+    var selection: Set<Int64> = [] {
+        // The ⌘K palette acts on the selection; it closes when there is none.
+        didSet { if selection.isEmpty { showActions = false } }
+    }
     private(set) var isSearching = false
     private(set) var elapsed: Duration?
     private(set) var message: String?
+    /// Shown after the result count, e.g. when Ask fell back to searching the words.
+    private(set) var notice: String?
     /// The filters an Ask request was turned into, and the equivalent query text.
     private(set) var interpretation: (summary: String, query: String)?
     /// Content match details per result, loaded when a row first becomes visible.
@@ -270,6 +282,7 @@ final class SearchModel {
 
     func search(debounce: Bool = true) {
         searchTask?.cancel()
+        notice = nil
         let text = text.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty || filters.isActive else {
             items = []
@@ -384,6 +397,7 @@ final class SearchModel {
 
     private func ask() {
         searchTask?.cancel()
+        notice = nil
         let request = text
         searchTask = Task {
             isSearching = true
@@ -398,9 +412,10 @@ final class SearchModel {
             } catch is CancellationError {
                 return
             } catch {
-                // Fall back to the plain parser so a request never yields nothing.
-                message = "Couldn't interpret the request (\(error)); searching the words instead."
+                // Fall back to the plain parser so a request never yields nothing, and say so.
                 await run(query(for: request, scope: .everything))
+                notice = "Ask couldn't interpret this (\(error)), so these results match the words"
+                if items.isEmpty { message = notice }
             }
         }
     }
@@ -764,6 +779,7 @@ final class SearchModel {
             let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
             text += String(format: " · %.0f ms", ms)
         }
+        if let notice { text += " · " + notice }
         return text
     }
 }

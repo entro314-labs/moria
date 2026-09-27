@@ -143,10 +143,16 @@ private struct CollectionCard: View {
 }
 
 private struct KeyboardHints: View {
-    private let hints: [(String, String)] = [
-        ("⌥⌘F", "Search"), ("⌘1–⌘5", "Mode"), ("↩", "Open"), ("Space", "Quick Look"),
-        ("⌘R", "Show in Finder"), ("⌘K", "Actions"), ("⌘S", "Save search"), ("⌃⌥Space", "Quick search anywhere"),
-    ]
+    @Environment(AppModel.self) private var app
+
+    private var hints: [(String, String)] {
+        var hints = [
+            ("⌥⌘F", "Search"), ("⌘1–⌘5", "Mode"), ("↩", "Open"), ("Space", "Quick Look"),
+            ("⌘R", "Show in Finder"), ("⌘K", "Actions"), ("⌘S", "Save search"),
+        ]
+        if app.hotKeyChoice != .none { hints.append((app.hotKeyChoice.label, "Quick search anywhere")) }
+        return hints
+    }
 
     var body: some View {
         FlowLayout(spacing: 14) {

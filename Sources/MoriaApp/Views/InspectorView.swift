@@ -101,6 +101,7 @@ private struct InfoPane: View {
     @State private var facts: [(String, String)] = []
 
     private var result: SearchResult { item.result }
+    private static let shownLines = 100
 
     /// Matching lines: from a regex search, or loaded match details.
     private var lines: [(number: Int, text: String)] {
@@ -172,7 +173,7 @@ private struct InfoPane: View {
             .menuIndicator(.hidden)
             .labelStyle(.iconOnly)
             .fixedSize()
-            .help("More actions (⌘K)")
+            .help("More actions")
         }
         .buttonStyle(.glass)
         .controlSize(.regular)
@@ -188,17 +189,19 @@ private struct InfoPane: View {
                     sectionTitle(total == 1 ? "1 Match" : "\(total.formatted()) Matches")
                     Spacer()
                     // ⌘G / ⇧⌘G step through matches, as in HoudahSpot and Find.
+                    // Only the lines drawn below (the first 100) can be stepped to.
+                    let shown = min(lines.count, Self.shownLines)
                     ControlGroup {
-                        Button("Previous Match", systemImage: "chevron.up") { step(-1, lines.count, proxy) }
+                        Button("Previous Match", systemImage: "chevron.up") { step(-1, shown, proxy) }
                             .keyboardShortcut("g", modifiers: [.command, .shift])
-                        Button("Next Match", systemImage: "chevron.down") { step(1, lines.count, proxy) }
+                        Button("Next Match", systemImage: "chevron.down") { step(1, shown, proxy) }
                             .keyboardShortcut("g", modifiers: .command)
                     }
                     .controlSize(.small)
                     .fixedSize()
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(lines.prefix(100).enumerated()), id: \.offset) { index, line in
+                    ForEach(Array(lines.prefix(Self.shownLines).enumerated()), id: \.offset) { index, line in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text("\(line.number)")
                                 .font(.caption.monospacedDigit())
@@ -216,8 +219,8 @@ private struct InfoPane: View {
                         .id(index)
                         .onTapGesture { currentMatch = index }
                     }
-                    if total > 100 {
-                        Text("and \((total - 100).formatted()) more").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+                    if total > Self.shownLines {
+                        Text("and \((total - Self.shownLines).formatted()) more").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
                     }
                 }
             }
@@ -266,8 +269,10 @@ private struct InfoPane: View {
         Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
     }
 
-    /// Cheap format-specific facts: image dimensions, PDF page count.
-    private static func facts(for result: SearchResult) async -> [(String, String)] {
+    /// Cheap format-specific facts: image dimensions, PDF page count. Read off the main thread:
+    /// a large PDF or a slow volume would otherwise stall the window.
+    @concurrent
+    private nonisolated static func facts(for result: SearchResult) async -> [(String, String)] {
         guard !result.isCloudOnly, !result.isDirectory else { return [] }
         switch result.kind {
         case .image:

@@ -19,7 +19,8 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 12) {
                 point("magnifyingglass", "Every file, by name", "Including hidden files, app data and cloud folders, with folder, date, size and type filters.")
                 point("doc.text", "Text inside files", "Documents, PDFs, code, and text in screenshots and scans. Cloud-only files are never downloaded.")
-                point("bolt", "Always current", "Changes are picked up as they happen. Press \(app.hotKeyChoice.label) anywhere for quick search.")
+                point("bolt", "Always current", "Changes are picked up as they happen."
+                    + (app.hotKeyChoice == .none ? "" : " Press \(app.hotKeyChoice.label) anywhere for quick search."))
             }
             GroupBox {
                 HStack(alignment: .top, spacing: 12) {

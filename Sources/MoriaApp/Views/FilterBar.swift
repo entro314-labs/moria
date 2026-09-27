@@ -409,6 +409,8 @@ struct CoverageView: View {
                 Text("Index size \(ByteCountFormatter.string(fromByteCount: stats.databaseBytes, countStyle: .file))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else {
+                ProgressView().controlSize(.small)
             }
             Text("Searching: " + app.settings.roots.map(Display.abbreviate).joined(separator: ", "))
                 .font(.caption)

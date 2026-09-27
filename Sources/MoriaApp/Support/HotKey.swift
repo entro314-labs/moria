@@ -5,9 +5,10 @@ import Foundation
 /// needs no Accessibility permission.
 @MainActor
 final class HotKey {
-    /// The shortcuts offered in Settings.
+    /// The shortcuts offered in Settings. Shortcuts macOS already uses (⌃Space switches input
+    /// sources) are left out: registering them succeeds, so nothing would say they don't work.
     enum Choice: String, CaseIterable, Identifiable {
-        case controlOptionSpace, optionSpace, commandShiftSpace, controlSpace, optionCommandM, none
+        case controlOptionSpace, optionSpace, commandShiftSpace, none
 
         var id: String { rawValue }
 
@@ -16,23 +17,17 @@ final class HotKey {
             case .controlOptionSpace: "⌃⌥Space"
             case .optionSpace: "⌥Space"
             case .commandShiftSpace: "⇧⌘Space"
-            case .controlSpace: "⌃Space"
-            case .optionCommandM: "⌥⌘M"
             case .none: "None"
             }
         }
 
-        var keyCode: UInt32 {
-            self == .optionCommandM ? UInt32(kVK_ANSI_M) : UInt32(kVK_Space)
-        }
+        var keyCode: UInt32 { UInt32(kVK_Space) }
 
         var modifiers: UInt32 {
             switch self {
             case .controlOptionSpace: UInt32(controlKey | optionKey)
             case .optionSpace: UInt32(optionKey)
             case .commandShiftSpace: UInt32(cmdKey | shiftKey)
-            case .controlSpace: UInt32(controlKey)
-            case .optionCommandM: UInt32(optionKey | cmdKey)
             case .none: 0
             }
         }
