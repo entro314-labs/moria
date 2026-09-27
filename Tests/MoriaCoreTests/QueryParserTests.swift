@@ -146,6 +146,8 @@ extension QueryParserTests {
                                         .exclude, .include])
         let rebuilt = Criterion.query(from: criteria)
         #expect(parser.parse(rebuilt) == parser.parse(text))
+        // `-content:` is not a filter; it must not turn into "Contents contains".
+        #expect(Criterion.criteria(from: "-content:lease -text:lease", home: "/Users/test").map(\.op) == [.doesNotContain, .doesNotContain])
         #expect(Criterion(attribute: .name, op: .beginsWith, value: "").token == nil)
         #expect(Criterion(attribute: .size, op: .between, value: "1", unit: "mb").token == nil)
     }

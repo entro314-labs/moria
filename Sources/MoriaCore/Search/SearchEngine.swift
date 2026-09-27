@@ -116,12 +116,19 @@ public final class SearchEngine: Sendable {
     }
 
     private func contentMatches(_ query: SearchQuery, db: Database, limit: Int) throws -> [SearchResult] {
-        guard query.nameTerms.isEmpty else { return [] }
         // A single letter says nothing about contents and matches most documents.
         var parts = (query.terms.filter { $0.count > 1 } + query.contentTerms).compactMap(Self.prefixTerm)
         parts += query.phrases.map(Self.quote)
         guard !parts.isEmpty else { return [] }
-        let filter = FilterSQL(query: query, home: home)
+        var filter = FilterSQL(query: query, home: home)
+        // `name:` words narrow content matches to files whose names contain them.
+        for word in query.nameTerms.map(\.searchFolded) {
+            if word.count >= 3 {
+                filter.add("f.id IN (SELECT rowid FROM name_fts WHERE name_fts MATCH ?)", Self.quote(word))
+            } else {
+                filter.addNamePrefix(word)
+            }
+        }
         return try Row.fetchAll(db, sql: """
             SELECT \(Self.columns), content_fts.rank AS rank
             FROM content_fts JOIN file f ON f.id = content_fts.rowid JOIN dir d ON d.id = f.dirId
@@ -216,9 +223,7 @@ public final class SearchEngine: Sendable {
                 byID[match.fileID]?.meaningChunk = match.chunk
             }
         }
-        let excluded = try excludedIDs(query, candidates: Array(byID.keys))
         return byID.values
-            .filter { !excluded.contains($0.id) }
             .map { hit in
                 var hit = hit
                 if isSystemLocation(hit.path) { hit.score *= 0.7 }
@@ -241,26 +246,6 @@ public final class SearchEngine: Sendable {
     /// Files under `~/Library` or in hidden folders are support files, rarely what's wanted.
     private func isSystemLocation(_ path: String) -> Bool {
         path.hasPrefix(home + "/Library/") || path.contains("/.")
-    }
-
-    private func excludedIDs(_ query: SearchQuery, candidates: [Int64]) throws -> Set<Int64> {
-        guard !query.excludedTerms.isEmpty, !candidates.isEmpty else { return [] }
-        return try database.pool.read { db in
-            var excluded = Set<Int64>()
-            let idList = candidates.map(String.init).joined(separator: ",")
-            for term in query.excludedTerms {
-                let folded = term.searchFolded
-                excluded.formUnion(try Int64.fetchAll(db, sql: """
-                    SELECT id FROM file WHERE id IN (\(idList)) AND name LIKE ? ESCAPE '\\'
-                    """, arguments: ["%" + Self.escapeLike(folded) + "%"]))
-                if let match = Self.prefixTerm(term) {
-                    excluded.formUnion(try Int64.fetchAll(db, sql: """
-                        SELECT rowid FROM content_fts WHERE content_fts MATCH ? AND rowid IN (\(idList))
-                        """, arguments: [match]))
-                }
-            }
-            return excluded
-        }
     }
 
     /// Metadata for specific files (e.g. regex hits), keyed by id.
@@ -392,6 +377,14 @@ struct FilterSQL {
         }
         for text in query.pathContains {
             add("(" + IndexDatabase.pathSQL + " LIKE ? ESCAPE '\\')", "%" + SearchEngine.escapeLike(text) + "%")
+        }
+        // `-word`: in SQL rather than after ranking, so it also applies when there are no search
+        // words and to meaning matches. Names are folded like the name index ("-cafe" drops "Café").
+        for term in query.excludedTerms {
+            add("moria_fold(f.name) NOT LIKE ? ESCAPE '\\'", "%" + SearchEngine.escapeLike(term.searchFolded) + "%")
+            if let match = SearchEngine.prefixTerm(term) {
+                add("f.id NOT IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)", match)
+            }
         }
         if !query.excludedKinds.isEmpty {
             add("f.kind NOT IN (\(Array(repeating: "?", count: query.excludedKinds.count).joined(separator: ",")))",

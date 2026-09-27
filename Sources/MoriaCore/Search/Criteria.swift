@@ -187,7 +187,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             }
         case "ext", "extension", "type": return Criterion(attribute: .ext, op: negated ? .isNot : .is, value: value)
         case "kind": return Criterion(attribute: .kind, op: negated ? .isNot : .is, value: value)
-        case "content", "text" where !negated:
+        case "content" where !negated, "text" where !negated:
             return Criterion(attribute: .contents, op: value.contains(" ") ? .containsPhrase : .contains, value: value)
         case "path" where !negated: return Criterion(attribute: .path, op: .contains, value: value)
         case "in", "folder":

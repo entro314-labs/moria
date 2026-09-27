@@ -78,6 +78,47 @@ struct IndexTests {
         #expect(stats.contentIndexed == 4)
     }
 
+    @Test func combinesNameAndContentConditions() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+
+        // The criteria builder writes "Name contains" + "Contents contains" as these two tokens.
+        #expect(try await search(engine, "name:receipt content:apartment") == ["Documents/Taxes/receipt.txt"])
+        #expect(try await search(engine, "name:draft content:apartment").isEmpty)
+        // Short name words are prefixes, as in name-only searches.
+        #expect(try await search(engine, "name:re content:apartment") == ["Documents/Taxes/receipt.txt"])
+        // A plain word may match the contents of a file whose name has the `name:` word.
+        #expect(try await search(engine, "name:receipt apartment") == ["Documents/Taxes/receipt.txt"])
+        // Name-only and contents-only words never cross over (the Names and Contents modes).
+        var names = SearchQuery()
+        names.nameTerms = ["rent receipt"]
+        #expect(try await engine.search(names).isEmpty)
+        var contents = SearchQuery()
+        contents.contentTerms = ["receipt"]
+        #expect(try await engine.search(contents).allSatisfy { !$0.matchedName })
+    }
+
+    @Test func exclusionsApplyWithoutSearchWords() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+
+        #expect(try await search(engine, "kind:text -draft").sorted()
+            == ["App/build/output.txt", "Documents/Taxes/receipt.txt", "Documents/greek-note.md"])
+        // Content exclusion: both receipts mention rent; build output has no indexed text.
+        #expect(try await search(engine, "kind:text -rent").sorted() == ["App/build/output.txt", "Documents/greek-note.md"])
+        let everythingButDrafts = try await search(engine, "-draft")
+        #expect(!everythingButDrafts.isEmpty && !everythingButDrafts.contains("Documents/draft.txt"))
+        // Accents in the name don't defeat an exclusion.
+        // Composed "é", as Finder names files (Foundation's URL writes would decompose it).
+        let cafe = root.path + "/Documents/Caf\u{E9} menu.txt"
+        close(creat(cafe, 0o644))
+        try await controller.apply([FileChange(path: cafe, rescanSubtree: false)])
+        #expect(try await search(engine, "menu") == ["Documents/Café menu.txt"])
+        #expect(try await search(engine, "menu -cafe").isEmpty)
+    }
+
     @Test func appliesModificationsAndDeletions() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

@@ -42,7 +42,9 @@ struct FilterBar: View {
                     if model.filters.isActive || !model.typedChips.isEmpty {
                         Button("Clear") {
                             model.filters = FilterState()
-                            model.text = QueryParser().parse(model.text).terms.joined(separator: " ")
+                            // Keeps the search words and phrases; every chip goes.
+                            let query = QueryParser().parse(model.text)
+                            model.text = (query.terms + query.phrases.map { "\"\($0)\"" }).joined(separator: " ")
                         }
                         .buttonStyle(.borderless)
                         .font(.caption)
