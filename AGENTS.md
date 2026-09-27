@@ -19,9 +19,12 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
 ## Key design decisions
 
 - Schema: folders keep full paths in `dir`; files store `(dirId, name)`. Both FTS5 tables are contentless; only PDF/Office/OCR text is stored (`doc_text`). Snippets are built on demand (`SearchEngine.snippet`).
-- Content scope: names are indexed everywhere; text is extracted only outside `~/Library`, hidden folders and dependency/build folders (`contentState = 5` = excluded).
+- Content scope: names are indexed everywhere; text is extracted only outside `~/Library`, hidden folders and dependency/build folders (`contentState = 5` = excluded). Symlinks are names only (`7`); their targets are read where they live.
+- Changing an extraction setting marks indexed files stale (`contentState = 6`): their text stays searchable until they are read again. The invalidation trigger treats 1 and 6 alike.
+- Settings live in the index (`meta`); the running app re-reads them (`IndexController.reloadSettings`) so `moria config` changes apply. A change to what is crawled clears the FSEvents resume point until a full scan completes.
+- Regex: names and stored text use ICU; files use ripgrep with `--engine auto` (PCRE2 when a pattern needs it). Case-sensitive patterns carry `(?-i)`. Homebrew's ripgrep, linked against Homebrew's PCRE2, misses some PCRE2 matches; the app bundles the official static build.
 - The process sets `IOPOL_MATERIALIZE_DATALESS_FILES_OFF` so reading a cloud placeholder fails instead of downloading it. Keep it that way.
-- Schema changes go in new migrations (`v3`, …): real indexes exist with `v1` and `v2-filter-indexes` applied. Never edit applied migrations.
+- Schema changes go in new migrations (`v3`, …): real indexes exist with `v1` and `v2-filter-indexes` applied; `v3-stale-content` is applied the first time a build with it opens an index. Never edit applied migrations.
 - `MoriaSettings` decodes missing keys with defaults; keep that when adding settings.
 
 ## Build, test, run

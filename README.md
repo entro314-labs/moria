@@ -49,7 +49,7 @@ Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services �
 
 Everything is indexed and searched on this Mac. Allow **Full Disk Access** (System Settings › Privacy & Security) so Moria can see Mail, Messages and other protected data.
 
-The index lives in `~/Library/Application Support/Moria/index.sqlite`. Names cost roughly 250 bytes per file; extracted text about a quarter of its raw size (the text itself is not stored, except for PDFs, Office files and recognized text). Settings › Contents controls which folders are read for text: by default `~/Library`, hidden folders and dependency/build folders are indexed by name only.
+The index lives in `~/Library/Application Support/Moria/index.sqlite`. Names cost roughly 250 bytes per file; extracted text about a quarter of its raw size (the text itself is not stored, except for PDFs, Office files and recognized text). Settings › Contents controls which folders are read for text: by default `~/Library`, hidden folders and dependency/build folders are indexed by name only. Symbolic links are indexed by name; their targets are read where they are. Changing what is read keeps existing text searchable until each file is read again.
 
 ## Building
 
