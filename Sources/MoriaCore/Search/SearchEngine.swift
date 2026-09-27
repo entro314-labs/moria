@@ -434,15 +434,23 @@ struct FilterSQL {
     }
 }
 
-/// Caches the in-memory vector index and reloads it when embeddings change.
+/// Caches the in-memory vector index and reloads it when embeddings change, at most once a
+/// minute: while the backlog is embedded, the version changes every 64 files, and reloading
+/// every vector (over a gigabyte for a few hundred thousand documents) per search would make
+/// each meaning search as slow as a full load.
 actor VectorCache {
     private var cached: VectorIndex?
+    private var loadedAt = Date.distantPast
 
-    func index(for database: IndexDatabase) throws -> VectorIndex {
+    static let minimumReloadInterval: TimeInterval = 60
+
+    func index(for database: IndexDatabase, now: Date = Date()) throws -> VectorIndex {
+        if let cached, now.timeIntervalSince(loadedAt) < Self.minimumReloadInterval { return cached }
         let version = try database.embeddingsVersion()
         if let cached, cached.version == version { return cached }
         let index = try VectorIndex(database: database)
         cached = index
+        loadedAt = now
         return index
     }
 }

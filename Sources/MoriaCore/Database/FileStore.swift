@@ -159,11 +159,17 @@ extension IndexDatabase {
 
     /// Writes extraction results. A result is dropped if the file changed since it was read
     /// (its mtime no longer matches), leaving it pending for the next pass. A stale file that no
-    /// longer yields text loses its old text through the invalidation trigger.
-    func store(_ results: [ExtractionResult]) throws {
+    /// longer yields text loses its old text through the invalidation trigger. Indexed files
+    /// the semantic index doesn't cover are marked so they never wait for embedding.
+    func store(_ results: [ExtractionResult], home: String = NSHomeDirectory()) throws {
+        let embeddable = Self.embeddable(home: home)
         try pool.write { db in
             let update = try db.cachedStatement(sql: """
                 UPDATE file SET contentState = ?, embedState = 0 WHERE id = ? AND mtime = ? AND contentState IN (0, 6)
+                """)
+            let markNotEmbeddable = try db.cachedStatement(sql: """
+                UPDATE file SET embedState = 2 WHERE id = ? AND NOT EXISTS (
+                    SELECT 1 FROM file f JOIN dir d ON d.id = f.dirId WHERE f.id = ? AND \(embeddable.sql))
                 """)
             let deleteContent = try db.cachedStatement(sql: "DELETE FROM content_fts WHERE rowid = ?")
             let insertContent = try db.cachedStatement(sql: "INSERT INTO content_fts(rowid, body) VALUES (?, ?)")
@@ -171,6 +177,7 @@ extension IndexDatabase {
             for result in results {
                 try update.execute(arguments: [result.state.rawValue, result.id, result.mtime])
                 guard db.changesCount == 1, result.state == .indexed, let text = result.text else { continue }
+                try markNotEmbeddable.execute(arguments: [result.id, result.id] + embeddable.arguments)
                 try deleteContent.execute(arguments: [result.id])
                 try insertContent.execute(arguments: [result.id, text])
                 if result.storeText {
@@ -219,30 +226,53 @@ extension IndexDatabase {
     }
 
     // MARK: - Embeddings
+    //
+    // embedState: 0 waiting, 1 embedded, 2 not embedded (no text in a supported language, or a
+    // file the semantic index doesn't cover). Only 0 is in the `file_embed_pending` index.
 
-    /// Indexed documents without embeddings. Code, `~/Library` and hidden paths are excluded:
-    /// the sentence model is trained on prose, and those files dominate counts without helping.
+    /// Files the semantic index covers (`f` = file, `d` = its dir): documents, PDFs, text and
+    /// recognized images outside `~/Library` and hidden folders. The sentence model is trained
+    /// on prose; code and support files dominate counts without helping.
+    static func embeddable(home: String) -> (sql: String, arguments: StatementArguments) {
+        ("f.kind IN ('document', 'pdf', 'text', 'image') AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'",
+         [home + "/Library", home + "/Library/", home + "/Library0"])
+    }
+
+    /// Indexed documents without embeddings.
     func filesNeedingEmbedding(limit: Int, home: String = NSHomeDirectory()) throws -> [(id: Int64, path: String, kind: FileKind)] {
-        try pool.read { db in
+        let embeddable = Self.embeddable(home: home)
+        return try pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT f.id, \(Self.pathSQL) AS path, f.kind FROM file f JOIN dir d ON d.id = f.dirId
-                WHERE f.embedState = 0 AND f.contentState = 1
-                  AND f.kind IN ('document', 'pdf', 'text', 'image')
-                  AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'
+                WHERE f.embedState = 0 AND f.contentState = 1 AND \(embeddable.sql)
                 LIMIT ?
-                """, arguments: [home + "/Library", home + "/Library/", home + "/Library0", limit]
+                """, arguments: embeddable.arguments + [limit]
             ).map { (id: $0["id"], path: $0["path"], kind: FileKind(rawValue: $0["kind"]) ?? .other) }
+        }
+    }
+
+    /// Takes files the semantic index doesn't cover out of the embedding backlog. Indexes built
+    /// before `store` marked them hold them at 0 (on a large home folder, most of the backlog:
+    /// code), and every batch would scan past them again.
+    func markNotEmbeddable(home: String = NSHomeDirectory()) throws {
+        let embeddable = Self.embeddable(home: home)
+        try pool.write { db in
+            try db.execute(sql: """
+                UPDATE file SET embedState = 2 WHERE embedState = 0 AND contentState = 1 AND id NOT IN (
+                    SELECT f.id FROM file f JOIN dir d ON d.id = f.dirId
+                    WHERE f.embedState = 0 AND f.contentState = 1 AND \(embeddable.sql))
+                """, arguments: embeddable.arguments)
         }
     }
 
     /// Documents the semantic index would cover (shown before it is turned on).
     public func embeddableCount(home: String = NSHomeDirectory()) throws -> Int {
-        try pool.read { db in
+        let embeddable = Self.embeddable(home: home)
+        return try pool.read { db in
             try Int.fetchOne(db, sql: """
                 SELECT count(*) FROM file f JOIN dir d ON d.id = f.dirId
-                WHERE f.contentState IN (1, 6) AND f.kind IN ('document', 'pdf', 'text', 'image')
-                  AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'
-                """, arguments: [home + "/Library", home + "/Library/", home + "/Library0"]) ?? 0
+                WHERE f.contentState IN (1, 6) AND \(embeddable.sql)
+                """, arguments: embeddable.arguments) ?? 0
         }
     }
 
@@ -266,7 +296,8 @@ extension IndexDatabase {
 
     public func clearEmbeddings() throws {
         try pool.write { db in
-            try db.execute(sql: "DELETE FROM chunk_vec; UPDATE file SET embedState = 0 WHERE embedState != 0")
+            // Files marked 2 stay out: whether they can be embedded doesn't change.
+            try db.execute(sql: "DELETE FROM chunk_vec; UPDATE file SET embedState = 0 WHERE embedState = 1")
             try Self.bumpEmbeddingsVersion(db)
         }
     }

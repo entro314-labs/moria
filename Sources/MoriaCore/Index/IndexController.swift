@@ -38,6 +38,8 @@ public actor IndexController {
     private var fullScanRequested = false
     /// Erase the index before the next full scan (see `rebuild()`).
     private var rebuildRequested = false
+    /// `markNotEmbeddable` ran in this session (it only needs to once).
+    private var embedBacklogCleaned = false
     private var wake: AsyncStream<Void>.Continuation?
     private var loop: Task<Void, Never>?
     private let ocrLimiter = AsyncLimiter(limit: 2)
@@ -481,6 +483,10 @@ public actor IndexController {
 
     /// Embeds one batch of indexed files. Returns false when nothing is left.
     private func embedBatch() async throws -> Bool {
+        if !embedBacklogCleaned {
+            try database.markNotEmbeddable()
+            embedBacklogCleaned = true
+        }
         let batch = try database.filesNeedingEmbedding(limit: 64)
         guard !batch.isEmpty else { return false }
         publish(phase: .embedding)

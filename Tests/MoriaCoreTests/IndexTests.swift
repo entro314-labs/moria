@@ -340,6 +340,41 @@ struct IndexTests {
         #expect(try await names("(?-i)monthly rent").isEmpty)
     }
 
+    @Test func filesOutsideTheSemanticIndexNeverWaitForEmbedding() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        func waiting() async throws -> [String] {
+            try database.filesNeedingEmbedding(limit: 100, home: root.path).map { ($0.path as NSString).lastPathComponent }.sorted()
+        }
+        func backlog() async throws -> Int {
+            try await database.pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE embedState = 0 AND contentState = 1")! }
+        }
+        // Newly read code is marked when it is stored; documents wait.
+        #expect(try await waiting() == ["draft.txt", "greek-note.md", "receipt.txt"])
+        #expect(try await backlog() == 3)
+        // Indexes from before that are cleaned in one pass.
+        try await database.pool.write { db in try db.execute(sql: "UPDATE file SET embedState = 0 WHERE contentState = 1") }
+        #expect(try await backlog() == 4)
+        try database.markNotEmbeddable(home: root.path)
+        #expect(try await backlog() == 3)
+        // Turning meaning off and on again keeps them out.
+        try database.clearEmbeddings()
+        #expect(try await backlog() == 3)
+    }
+
+    @Test func vectorIndexReloadsAtMostOnceAMinute() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let id = try await database.pool.read { db in try Int64.fetchOne(db, sql: "SELECT id FROM file WHERE isDir = 0 LIMIT 1")! }
+        try database.storeEmbeddings([(id, [(0, [1, 0])])])
+        let cache = VectorCache()
+        let start = Date()
+        let first = try await cache.index(for: database, now: start)
+        try database.storeEmbeddings([(id, [(0, [0, 1])])])
+        #expect(try await cache.index(for: database, now: start.addingTimeInterval(10)).version == first.version)
+        #expect(try await cache.index(for: database, now: start.addingTimeInterval(61)).version == first.version + 1)
+    }
+
     @Test func vectorIndexRanksByBestChunk() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)
