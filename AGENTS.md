@@ -21,7 +21,8 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
 - Schema: folders keep full paths in `dir`; files store `(dirId, name)`. Both FTS5 tables are contentless; only PDF/Office/OCR text is stored (`doc_text`). Snippets are built on demand (`SearchEngine.snippet`).
 - Content scope: names are indexed everywhere; text is extracted only outside `~/Library`, hidden folders and dependency/build folders (`contentState = 5` = excluded).
 - The process sets `IOPOL_MATERIALIZE_DATALESS_FILES_OFF` so reading a cloud placeholder fails instead of downloading it. Keep it that way.
-- Migration `v1` has not shipped; edit it in place until the first release, then add migrations.
+- Schema changes go in new migrations (`v3`, …): real indexes exist with `v1` and `v2-filter-indexes` applied. Never edit applied migrations.
+- `MoriaSettings` decodes missing keys with defaults; keep that when adding settings.
 
 ## Build, test, run
 

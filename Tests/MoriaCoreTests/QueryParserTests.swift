@@ -150,3 +150,13 @@ extension QueryParserTests {
         #expect(Criterion(attribute: .size, op: .between, value: "1", unit: "mb").token == nil)
     }
 }
+
+extension QueryParserTests {
+    @Test func settingsFromOlderVersionsLoadWithDefaults() throws {
+        let old = #"{"roots":["/Users/test"],"ocrImages":false}"#
+        let settings = try JSONDecoder().decode(MoriaSettings.self, from: Data(old.utf8))
+        #expect(settings.roots == ["/Users/test"])
+        #expect(settings.ocrImages == false)
+        #expect(settings.maxContentKilobytes == MoriaSettings.defaults().maxContentKilobytes)
+    }
+}

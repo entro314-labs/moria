@@ -128,8 +128,12 @@ final class AppModel {
         refreshStats()
     }
 
+    /// Re-checks Full Disk Access; when it has just been granted, rescans so folders that were
+    /// unreadable during the first crawl (Mail, Messages, …) get indexed.
     func refreshAccess() {
-        hasFullDiskAccess = FullDiskAccess.isGranted
+        let granted = FullDiskAccess.isGranted
+        if granted, !hasFullDiskAccess { rescan() }
+        hasFullDiskAccess = granted
     }
 
     func refreshStats() {

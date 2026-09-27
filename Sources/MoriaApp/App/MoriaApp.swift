@@ -143,9 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func showSearch(_ text: String?, scope: SearchScope? = nil) {
         NSApp.activate()
         let request = SearchRequest(text: text, scope: scope)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }) {
+        let mainWindows = NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }
+        if let window = mainWindows.first(where: \.isKeyWindow) ?? mainWindows.first {
             window.makeKeyAndOrderFront(nil)
-            NotificationCenter.default.post(name: .moriaSearch, object: request)
+            // Addressed to one window explicitly: "is active" updates too late to decide.
+            NotificationCenter.default.post(name: .moriaSearch, object: window, userInfo: ["request": request])
         } else {
             pendingRequest = request
             openMainWindow?()

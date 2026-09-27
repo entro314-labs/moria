@@ -29,6 +29,11 @@ final class QuickPanelController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = .clear
         panel.delegate = self
+        // Esc clears the text first, then closes (as Spotlight does).
+        panel.onEscape = { [weak self] in
+            guard let self else { return }
+            if model.text.isEmpty { close() } else { model.text = "" }
+        }
         let root = QuickPanelView(model: model, close: { [weak self] in self?.close() }, openInMain: { [weak self] text in
             self?.close()
             openInMain(text)
@@ -54,16 +59,20 @@ final class QuickPanelController: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
     }
 
+
     func windowDidResignKey(_ notification: Notification) {
         close()
     }
 }
 
 final class QuickPanelWindow: NSPanel {
+    /// Esc from anywhere in the panel (including the text field) lands here.
+    var onEscape: () -> Void = {}
+
     override var canBecomeKey: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
-        orderOut(nil)
+        onEscape()
     }
 }
 
@@ -150,11 +159,6 @@ struct QuickPanelView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onKeyPress(.upArrow) { move(-1); return .handled }
-        // Esc clears the text first, then closes (as Spotlight does).
-        .onKeyPress(.escape) {
-            if model.text.isEmpty { close() } else { model.text = "" }
-            return .handled
-        }
         .onKeyPress(keys: ["o", "r"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if press.characters == "o" {

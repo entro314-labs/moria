@@ -64,3 +64,29 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
         )
     }
 }
+
+extension MoriaSettings {
+    /// Missing keys fall back to defaults, so settings saved by an older version still load
+    /// after new settings are added.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = MoriaSettings.defaults()
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) throws -> T {
+            try container.decodeIfPresent(T.self, forKey: key) ?? fallback
+        }
+        roots = try value(.roots, defaults.roots)
+        excludedPaths = try value(.excludedPaths, defaults.excludedPaths)
+        excludedNames = try value(.excludedNames, defaults.excludedNames)
+        includeHidden = try value(.includeHidden, defaults.includeHidden)
+        descendIntoPackages = try value(.descendIntoPackages, defaults.descendIntoPackages)
+        contentExcludedPaths = try value(.contentExcludedPaths, defaults.contentExcludedPaths)
+        contentExcludedNames = try value(.contentExcludedNames, defaults.contentExcludedNames)
+        extractHiddenContent = try value(.extractHiddenContent, defaults.extractHiddenContent)
+        maxContentKilobytes = try value(.maxContentKilobytes, defaults.maxContentKilobytes)
+        maxFileMegabytes = try value(.maxFileMegabytes, defaults.maxFileMegabytes)
+        ocrImages = try value(.ocrImages, defaults.ocrImages)
+        ocrScannedPDFs = try value(.ocrScannedPDFs, defaults.ocrScannedPDFs)
+        semanticSearchEnabled = try value(.semanticSearchEnabled, defaults.semanticSearchEnabled)
+        naturalLanguageQueriesEnabled = try value(.naturalLanguageQueriesEnabled, defaults.naturalLanguageQueriesEnabled)
+    }
+}

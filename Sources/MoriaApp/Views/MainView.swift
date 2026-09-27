@@ -8,6 +8,7 @@ struct MainView: View {
     @State private var model: SearchModel
     @SceneStorage("showInspector") private var showInspector = true
     @State private var exporting = false
+    @State private var window: NSWindow?
     @Environment(\.openWindow) private var openWindow
     @State private var showSyntax = false
     @State private var saveName = ""
@@ -92,9 +93,11 @@ struct MainView: View {
         .sheet(isPresented: Binding(get: { !onboarded }, set: { if !$0 { onboarded = true } })) {
             OnboardingView { onboarded = true }
         }
+        .background(WindowReader(window: $window))
         .onReceive(NotificationCenter.default.publisher(for: .moriaSearch)) { note in
-            // Only the frontmost window takes the request.
-            guard let request = note.object as? SearchRequest, isKeyWindow else { return }
+            // Requests are addressed to one window.
+            guard let request = note.userInfo?["request"] as? SearchRequest,
+                  let target = note.object as? NSWindow, target === window else { return }
             model.show(request)
             searchFocused = true
         }
@@ -102,8 +105,6 @@ struct MainView: View {
             app.refreshAccess()
         }
     }
-
-    @Environment(\.appearsActive) private var isKeyWindow
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
@@ -266,5 +267,20 @@ struct CSVDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
+
+/// Reports the window hosting a view.
+private struct WindowReader: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { window = view.window }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        if window !== view.window { DispatchQueue.main.async { window = view.window } }
     }
 }

@@ -172,6 +172,7 @@ private struct ContentSettings: View {
 
 private struct IntelligenceSettings: View {
     @Environment(AppModel.self) private var app
+    @State private var embeddable: Int?
 
     var body: some View {
         Form {
@@ -187,6 +188,14 @@ private struct IntelligenceSettings: View {
             }
             Section {
                 Toggle("Search by meaning", isOn: binding(\.semanticSearchEnabled))
+                if let embeddable, !app.settings.semanticSearchEnabled {
+                    // Each document takes ~10 ms to embed and up to 4 KB of index and memory.
+                    let minutes = max(1, embeddable / 100 / 60)
+                    Label("Covers \(embeddable.formatted()) documents: about \(minutes.formatted()) min of background work and \(ByteCountFormatter.string(fromByteCount: Int64(embeddable) * 4096, countStyle: .memory)) of index kept in memory while searching.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if app.settings.semanticSearchEnabled, let stats = app.stats {
                     LabeledContent("Indexed passages", value: stats.embeddedChunks.formatted())
                 }
@@ -195,6 +204,10 @@ private struct IntelligenceSettings: View {
             }
         }
         .formStyle(.grouped)
+        .task {
+            let database = app.database
+            embeddable = await Task.detached(priority: .utility) { try? database.embeddableCount() }.value
+        }
     }
 
     private func binding(_ keyPath: WritableKeyPath<MoriaSettings, Bool>) -> Binding<Bool> {

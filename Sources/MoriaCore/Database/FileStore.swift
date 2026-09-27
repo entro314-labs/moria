@@ -218,6 +218,17 @@ extension IndexDatabase {
         }
     }
 
+    /// Documents the semantic index would cover (shown before it is turned on).
+    public func embeddableCount(home: String = NSHomeDirectory()) throws -> Int {
+        try pool.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM file f JOIN dir d ON d.id = f.dirId
+                WHERE f.contentState = 1 AND f.kind IN ('document', 'pdf', 'text', 'image')
+                  AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'
+                """, arguments: [home + "/Library", home + "/Library/", home + "/Library0"]) ?? 0
+        }
+    }
+
     /// Replaces the chunk vectors of each file and marks it embedded (1) or not embeddable (2).
     func storeEmbeddings(_ items: [(id: Int64, chunks: [[Float]])]) throws {
         try pool.write { db in
