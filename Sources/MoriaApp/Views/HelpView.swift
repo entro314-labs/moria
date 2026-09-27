@@ -56,7 +56,7 @@ struct HelpView: View {
         case .keyboard:
             shortcuts([
                 ("⌃⌥Space", "Quick search from anywhere (change in Settings)"),
-                ("⌥⌘F  or  ⌘L", "Go to the search field"),
+                ("⌥⌘F", "Go to the search field"),
                 ("Return (in the field)", "Move to the results"),
                 ("↑ ↓", "Move through results"),
                 ("Return  or  ⌘↓", "Open"),
