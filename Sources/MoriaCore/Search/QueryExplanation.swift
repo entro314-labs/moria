@@ -48,6 +48,19 @@ extension QueryParser {
         if !query.excludedKinds.isEmpty {
             return chip("No " + query.excludedKinds.map(\.displayName).sorted().joined(separator: ", "), "square.grid.2x2", exclusion: true)
         }
+        if !query.excludedExtensions.isEmpty {
+            return chip("Not " + query.excludedExtensions.sorted().map { "." + $0 }.joined(separator: ", "), "doc", exclusion: true)
+        }
+        if let pattern = query.namePatterns.first {
+            let label = switch pattern {
+            case let .prefix(text): "Name begins with “\(text)”"
+            case let .suffix(text): "Name ends with “\(text)”"
+            case let .exact(text): "Name is “\(text)”"
+            case let .regex(text): "Name matches /\(text)/"
+            }
+            return chip(label, "textformat")
+        }
+        if let text = query.pathContains.first { return chip("Path contains “\(text)”", "point.topleft.down.to.point.bottomright.curvepath") }
         if !query.extensions.isEmpty {
             return chip(query.extensions.sorted().map { "." + $0 }.joined(separator: ", "), "doc")
         }

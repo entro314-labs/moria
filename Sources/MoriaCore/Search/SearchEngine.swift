@@ -355,6 +355,21 @@ struct FilterSQL {
             add("f.kind IN (\(Array(repeating: "?", count: query.kinds.count).joined(separator: ",")))",
                 values: query.kinds.map(\.rawValue).sorted())
         }
+        if !query.excludedExtensions.isEmpty {
+            add("f.ext NOT IN (\(Array(repeating: "?", count: query.excludedExtensions.count).joined(separator: ",")))",
+                values: query.excludedExtensions.sorted())
+        }
+        for pattern in query.namePatterns {
+            switch pattern {
+            case let .prefix(text): add("f.name LIKE ? ESCAPE '\\'", SearchEngine.escapeLike(text) + "%")
+            case let .suffix(text): add("f.name LIKE ? ESCAPE '\\'", "%" + SearchEngine.escapeLike(text))
+            case let .exact(text): add("f.name = ? COLLATE NOCASE", text)
+            case let .regex(pattern): add("moria_regexp(?, f.name)", pattern)
+            }
+        }
+        for text in query.pathContains {
+            add("(" + IndexDatabase.pathSQL + " LIKE ? ESCAPE '\\')", "%" + SearchEngine.escapeLike(text) + "%")
+        }
         if !query.excludedKinds.isEmpty {
             add("f.kind NOT IN (\(Array(repeating: "?", count: query.excludedKinds.count).joined(separator: ",")))",
                 values: query.excludedKinds.map(\.rawValue).sorted())

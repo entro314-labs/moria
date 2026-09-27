@@ -41,6 +41,7 @@ public final class IndexDatabase: Sendable {
         config.prepareDatabase { db in
             db.add(tokenizer: FoldingTokenizer.self)
             db.add(function: foldFunction)
+            db.add(function: regexpFunction)
             // Checkpoint every ~80 MB of WAL instead of 4 MB: bulk scans write millions of rows.
             try db.execute(sql: """
                 PRAGMA synchronous = NORMAL; PRAGMA journal_size_limit = 67108864;

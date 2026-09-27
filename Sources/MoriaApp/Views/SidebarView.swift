@@ -7,6 +7,8 @@ import SwiftUI
 struct SidebarView: View {
     @Bindable var model: SearchModel
     @State private var customFolders: [String] = []
+    @State private var renaming: SearchModel.SavedSearch?
+    @State private var newName = ""
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
@@ -24,13 +26,27 @@ struct SidebarView: View {
             if !model.app.savedSearches.isEmpty {
                 Section("Saved Searches") {
                     ForEach(model.app.savedSearches) { saved in
-                        row(saved.name, "magnifyingglass.circle", count: model.counts[.saved(saved.id)])
+                        row(saved.name, saved.scope == .regex ? "asterisk.circle" : "magnifyingglass.circle",
+                            count: model.counts[.saved(saved.id)])
                             .tag(SidebarItem.saved(saved.id))
                             .help(saved.text.isEmpty ? saved.scope.rawValue : saved.text)
                             .contextMenu {
-                                Button("Delete Saved Search", role: .destructive) { model.app.deleteSavedSearch(saved.id) }
+                                Button("Edit…") {
+                                    if saved.scope == .regex {
+                                        model.apply(saved)
+                                        model.showRegexBuilder = true
+                                    } else {
+                                        model.editingSaved = saved
+                                        model.showCriteria = true
+                                    }
+                                }
+                                Button("Rename…") { renaming = saved; newName = saved.name }
+                                Button("Duplicate") { model.app.duplicateSavedSearch(saved.id) }
+                                Divider()
+                                Button("Delete", role: .destructive) { model.app.deleteSavedSearch(saved.id) }
                             }
                     }
+                    .onMove { model.app.moveSavedSearches(from: $0, to: $1) }
                 }
             }
 
@@ -47,6 +63,12 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .onAppear { model.loadHome() }
+        .onChange(of: model.app.savedSearches) { model.loadHome() }
+        .alert("Rename Saved Search", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Rename") { if let renaming { model.app.renameSavedSearch(renaming.id, to: newName) } }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private func row(_ title: String, _ symbol: String, count: Int?) -> some View {

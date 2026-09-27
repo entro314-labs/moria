@@ -16,9 +16,12 @@ public struct QueryFormatter: Sendable {
         parts += query.terms.map(quotedIfNeeded)
         parts += query.phrases.map { "\"\($0)\"" }
         parts += query.nameTerms.map { "name:" + quotedIfNeeded($0) }
+        parts += query.namePatterns.map { "name:" + quotedIfNeeded($0.syntax) }
+        parts += query.pathContains.map { "path:" + quotedIfNeeded($0) }
         parts += query.contentTerms.map { "content:" + quotedIfNeeded($0) }
         parts += query.excludedTerms.map { "-" + $0 }
         if !query.extensions.isEmpty { parts.append("ext:" + query.extensions.sorted().joined(separator: ",")) }
+        if !query.excludedExtensions.isEmpty { parts.append("-ext:" + query.excludedExtensions.sorted().joined(separator: ",")) }
         if !query.kinds.isEmpty { parts.append("kind:" + query.kinds.map(\.rawValue).sorted().joined(separator: ",")) }
         if !query.excludedKinds.isEmpty { parts.append("-kind:" + query.excludedKinds.map(\.rawValue).sorted().joined(separator: ",")) }
         switch (query.minSize, query.maxSize) {

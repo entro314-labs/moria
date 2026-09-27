@@ -83,6 +83,12 @@ struct MainView: View {
             Text("Saved searches appear in the sidebar and always show current results.")
         }
         .onChange(of: model.showSavePrompt) { if model.showSavePrompt { saveName = model.text } }
+        .sheet(isPresented: $model.showCriteria, onDismiss: { model.editingSaved = nil }) {
+            CriteriaBuilderView(model: model, editing: model.editingSaved).environment(app)
+        }
+        .sheet(isPresented: $model.showRegexBuilder) {
+            RegexBuilderView(model: model).environment(app)
+        }
         .sheet(isPresented: Binding(get: { !onboarded }, set: { if !$0 { onboarded = true } })) {
             OnboardingView { onboarded = true }
         }

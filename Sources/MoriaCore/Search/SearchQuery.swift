@@ -16,6 +16,12 @@ public struct SearchQuery: Sendable, Equatable {
     /// `-term`: files whose name or content contains it are dropped.
     public var excludedTerms: [String] = []
     public var extensions: Set<String> = []
+    /// `-ext:`: extensions to leave out.
+    public var excludedExtensions: Set<String> = []
+    /// `name:foo*`, `name:*foo`, `name:=foo`, `name:/regex/`: precise name conditions.
+    public var namePatterns: [NamePattern] = []
+    /// `path:`: text the full path must contain.
+    public var pathContains: [String] = []
     public var kinds: Set<FileKind> = []
     /// `-kind:`: kinds to leave out.
     public var excludedKinds: Set<FileKind> = []
@@ -38,7 +44,8 @@ public struct SearchQuery: Sendable, Equatable {
     }
 
     public var hasFilters: Bool {
-        !extensions.isEmpty || !kinds.isEmpty || !excludedKinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
+        !extensions.isEmpty || !excludedExtensions.isEmpty || !namePatterns.isEmpty || !pathContains.isEmpty
+            || !kinds.isEmpty || !excludedKinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
             || created != nil || !folders.isEmpty || !excludedFolders.isEmpty || hidden != nil || cloudOnly != nil
     }
 
@@ -52,11 +59,45 @@ public struct SearchQuery: Sendable, Equatable {
     }
 }
 
+/// A precise condition on file names.
+public enum NamePattern: Sendable, Equatable, Hashable {
+    case prefix(String)
+    case suffix(String)
+    case exact(String)
+    /// ICU regular expression, case-insensitive.
+    case regex(String)
+
+    /// `foo*` prefix, `*foo` suffix, `=foo` exact, `/re/` regex; nil for a plain substring.
+    init?(syntax value: String) {
+        if value.count > 2, value.hasPrefix("/"), value.hasSuffix("/") {
+            self = .regex(String(value.dropFirst().dropLast()))
+        } else if value.count > 1, value.hasPrefix("=") {
+            self = .exact(String(value.dropFirst()))
+        } else if value.count > 1, value.hasSuffix("*"), !value.hasPrefix("*") {
+            self = .prefix(String(value.dropLast()))
+        } else if value.count > 1, value.hasPrefix("*"), !value.hasSuffix("*") {
+            self = .suffix(String(value.dropFirst()))
+        } else {
+            return nil
+        }
+    }
+
+    public var syntax: String {
+        switch self {
+        case let .prefix(text): text + "*"
+        case let .suffix(text): "*" + text
+        case let .exact(text): "=" + text
+        case let .regex(pattern): "/" + pattern + "/"
+        }
+    }
+}
+
 /// Parses the query syntax:
 ///
 ///     invoice "rent receipt" -draft ext:pdf,docx kind:image size:>10mb size:1mb..5mb
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
-///     content:lease hidden:no cloud:no -in:~/Library -kind:image
+///     content:lease hidden:no cloud:no -in:~/Library -kind:image -ext:tmp path:invoices
+///     name:report* name:*.draft name:=README name:/^IMG_\d{4}$/
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -86,6 +127,8 @@ public struct QueryParser: Sendable {
                 let rest = text.dropFirst()
                 if let key = ["in:", "path:", "folder:"].first(where: { rest.lowercased().hasPrefix($0) }), rest.count > key.count {
                     query.excludedFolders.append(expand(String(rest.dropFirst(key.count))))
+                } else if rest.lowercased().hasPrefix("ext:"), rest.count > 4 {
+                    query.excludedExtensions.formUnion(Self.extensions(String(rest.dropFirst(4))))
                 } else if rest.lowercased().hasPrefix("kind:"),
                           case let kinds = rest.dropFirst(5).split(separator: ",").compactMap({ Self.kind(named: $0.lowercased()) }),
                           !kinds.isEmpty {
@@ -109,8 +152,7 @@ public struct QueryParser: Sendable {
     private func apply(key: String, value: String, to query: inout SearchQuery) -> Bool {
         switch key {
         case "ext", "extension", "type":
-            let exts = value.split(separator: ",").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased() }
-            query.extensions.formUnion(exts.filter { !$0.isEmpty })
+            query.extensions.formUnion(Self.extensions(value))
             return true
         case "kind":
             let kinds = value.split(separator: ",").compactMap { Self.kind(named: $0.lowercased()) }
@@ -130,11 +172,18 @@ public struct QueryParser: Sendable {
             guard let interval = parseDate(value) else { return false }
             query.created = interval
             return true
-        case "in", "path", "folder":
+        case "in", "folder":
             query.folders.append(expand(value))
             return true
+        case "path":
+            query.pathContains.append(value)
+            return true
         case "name":
-            query.nameTerms.append(value)
+            if let pattern = NamePattern(syntax: value) {
+                query.namePatterns.append(pattern)
+            } else {
+                query.nameTerms.append(value)
+            }
             return true
         case "content", "text":
             query.contentTerms.append(value)
@@ -153,6 +202,11 @@ public struct QueryParser: Sendable {
     }
 
     // MARK: - Values
+
+    static func extensions(_ value: String) -> [String] {
+        value.split(separator: ",").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased() }
+            .filter { !$0.isEmpty }
+    }
 
     static func kind(named name: some StringProtocol) -> FileKind? {
         switch name {

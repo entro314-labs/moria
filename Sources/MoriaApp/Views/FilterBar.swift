@@ -12,7 +12,19 @@ struct FilterBar: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
                     ModeMenu(model: model)
+                    if model.mode == .regex {
+                        Button("Regex Builder") { model.showRegexBuilder = true }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .font(.caption.weight(.medium))
+                            .help("Build and test a pattern (⌥⌘R)")
+                    }
                     AddFilterMenu(filters: $model.filters, roots: model.app.settings.roots)
+                    Button("Criteria") { model.showCriteria = true }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .font(.caption.weight(.medium))
+                        .help("Build a detailed search from criteria (⇧⌘F)")
                     if model.interpretation != nil {
                         Label("Understood as", systemImage: "sparkles")
                             .font(.caption.weight(.medium))

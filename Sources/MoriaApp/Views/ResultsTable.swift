@@ -34,9 +34,7 @@ struct ResultsTable: NSViewRepresentable {
             tableColumn.width = column.width
             tableColumn.minWidth = column.minWidth
             tableColumn.isHidden = !column.visibleByDefault
-            if column.sortable {
-                tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: column.defaultAscending)
-            }
+            tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: column.defaultAscending)
             if column == .size { tableColumn.headerCell.alignment = .right }
             table.addTableColumn(tableColumn)
         }
@@ -91,15 +89,16 @@ struct ResultsTable: NSViewRepresentable {
                 }
             }
             var visibleByDefault: Bool { self != .location && self != .ext && self != .created }
-            var sortable: Bool { self != .location && self != .ext }
             var minWidth: CGFloat { self == .name ? 220 : 60 }
-            var defaultAscending: Bool { self == .name || self == .kind }
+            var defaultAscending: Bool { self == .name || self == .kind || self == .ext || self == .location }
             var sort: ResultSort {
                 switch self {
                 case .name: .name
-                case .kind, .ext: .kind
+                case .kind: .kind
+                case .ext: .ext
                 case .size: .size
-                case .modified, .location: .modified
+                case .modified: .modified
+                case .location: .path
                 case .created: .created
                 }
             }

@@ -60,6 +60,12 @@ struct MoriaCommands: Commands {
             Button("Go to Search Field") { model?.focusSearch() }
                 .keyboardShortcut("l")
                 .disabled(model == nil)
+            Button("Criteria…") { model?.showCriteria = true }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(model == nil)
+            Button("Regex Builder…") { model?.showRegexBuilder = true }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+                .disabled(model == nil)
         }
         CommandGroup(before: .sidebar) {
             ForEach(Array(SearchMode.allCases.enumerated()), id: \.element) { index, mode in

@@ -49,6 +49,12 @@ struct IndexTests {
         #expect(try await search(engine, "dependency").isEmpty)
         #expect(try await search(engine, "bundle").isEmpty)
         #expect(try await search(engine, "Tools") == ["Tools.app"])
+        // Name operators, path and extension filters.
+        #expect(try await search(engine, "name:Bill*") == ["Documents/Billing.swift"])
+        #expect(try await search(engine, "name:*.md") == ["Documents/greek-note.md"])
+        #expect(try await search(engine, "name:/^(draft|receipt)\\.txt$/").sorted() == ["Documents/Taxes/receipt.txt", "Documents/draft.txt"])
+        #expect(try await search(engine, "path:Taxes kind:text") == ["Documents/Taxes/receipt.txt"])
+        #expect(try await search(engine, "rent -ext:txt").isEmpty)
 
         // Snippets come from the file (text) since the content index stores no text.
         let hit = try await engine.search(QueryParser().parse("apartment")).first!

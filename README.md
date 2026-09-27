@@ -15,12 +15,15 @@ Deep search for macOS: every file name, the text inside documents, PDFs, code an
 - The bar under it holds the search **mode** (Everything, Names, Contents, Regex, Ask — ⌘1…⌘5), **+ Filter** menus, the active filters as chips, and one-click kind facets with counts.
 - The sidebar has **Home** (recently changed files), **Collections** (Recent Documents, Downloads, Screenshots, PDFs, Images, Recent Code, Large Files), **Saved Searches** (⌘S) and **Locations**.
 - The inspector shows the Quick Look preview, the info, or both, with every matching line (⌘G / ⇧⌘G to step through).
+- **Criteria builder** (⇧⌘F) builds detailed searches row by row, HoudahSpot-style; **Regex builder** (⌥⌘R) composes and tests patterns. Both produce ordinary query text you can save.
 - **⌃⌥Space** opens quick search from anywhere; **⌘K** lists actions for the selection; Space is Quick Look, ⌘R shows in Finder.
 - Query syntax (also under the **?** button and Help › Moria Help):
 
 ```
 invoice "rent receipt" -draft          words, phrase, exclusion
 name:report  content:lease             only names / only contents
+name:IMG*  name:*.draft  name:=README  name begins / ends / is
+name:/^IMG_\d{4}$/  path:invoices      name regex, path contains
 ext:pdf,docx  kind:image  -kind:folder file types
 size:>10mb  size:1mb..5mb              size
 modified:<7d  modified:2026-03..2026-05  created:2025

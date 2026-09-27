@@ -122,3 +122,31 @@ extension QueryParserTests {
         #expect(parser.parse("-kind:image,video").excludedKinds == [.image, .video])
     }
 }
+
+extension QueryParserTests {
+    @Test func namePatternsPathAndExtensionExclusion() {
+        let query = parser.parse(#"name:report* name:*.draft name:=README name:/^IMG_\d{4}$/ path:invoices -ext:tmp,log"#)
+        #expect(query.namePatterns == [.prefix("report"), .suffix(".draft"), .exact("README"), .regex(#"^IMG_\d{4}$"#)])
+        #expect(query.pathContains == ["invoices"])
+        #expect(query.excludedExtensions == ["tmp", "log"])
+        #expect(query.nameTerms.isEmpty)
+        #expect(parser.parse(QueryFormatter(calendar: calendar, home: "/Users/test").string(from: query)) == query)
+        #expect(parser.chips(for: "name:report* -ext:tmp").map(\.label) == ["Name begins with “report”", "Not .tmp"])
+    }
+}
+
+extension QueryParserTests {
+    @Test func criteriaRoundTripThroughQueryText() {
+        let text = #"invoice "rent receipt" -draft name:report* name:/^IMG_\d+$/ ext:pdf,docx -kind:folder content:lease path:taxes in:/Users/test/Documents -in:/Users/test/Library size:>10mb size:1mb..5mb modified:<7d created:2026-03..2026-05 modified:>2025-01-01 hidden:no cloud:yes"#
+        let criteria = Criterion.criteria(from: text, home: "/Users/test")
+        #expect(criteria.map(\.attribute) == [.words, .words, .words, .name, .name, .ext, .kind, .contents, .path, .folder, .folder,
+                                               .size, .size, .modified, .created, .modified, .hidden, .cloud])
+        #expect(criteria.map(\.op) == [.contains, .containsPhrase, .doesNotContain, .beginsWith, .matchesRegex, .is, .isNot,
+                                        .contains, .contains, .is, .isNot, .greaterThan, .between, .withinLast, .between, .after,
+                                        .exclude, .include])
+        let rebuilt = Criterion.query(from: criteria)
+        #expect(parser.parse(rebuilt) == parser.parse(text))
+        #expect(Criterion(attribute: .name, op: .beginsWith, value: "").token == nil)
+        #expect(Criterion(attribute: .size, op: .between, value: "1", unit: "mb").token == nil)
+    }
+}

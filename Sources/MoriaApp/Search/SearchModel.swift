@@ -28,6 +28,8 @@ enum ResultSort: String, CaseIterable, Identifiable {
     case size = "Size"
     case modified = "Date Modified"
     case created = "Date Created"
+    case path = "Where"
+    case ext = "Extension"
 
     var id: String { rawValue }
 }
@@ -160,6 +162,11 @@ final class SearchModel {
     var showActions = false
     /// Shows the "Save Search" name prompt.
     var showSavePrompt = false
+    /// Shows the criteria builder, optionally editing a saved search.
+    var showCriteria = false
+    var editingSaved: SavedSearch?
+    /// Shows the regex builder.
+    var showRegexBuilder = false
     /// Bumped to ask the results table to take keyboard focus.
     private(set) var focusResultsRequest = 0
     /// Bumped to ask the window to focus the search field.
@@ -411,6 +418,8 @@ final class SearchModel {
             case .size: x.size < y.size
             case .modified: x.modified < y.modified
             case .created: x.created < y.created
+            case .path: x.path.localizedStandardCompare(y.path) == .orderedAscending
+            case .ext: x.ext < y.ext
             case .relevance: x.score < y.score
             }
             return ascending ? ordered : !ordered

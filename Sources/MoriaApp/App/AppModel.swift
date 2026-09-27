@@ -41,9 +41,33 @@ final class AppModel {
         return (try? JSONDecoder().decode([SearchModel.SavedSearch].self, from: data)) ?? []
     }()
 
+    /// Adds a saved search, or replaces the one with the same id in place.
     func save(_ search: SearchModel.SavedSearch) {
-        savedSearches.removeAll { $0.id == search.id }
-        savedSearches.append(search)
+        if let index = savedSearches.firstIndex(where: { $0.id == search.id }) {
+            savedSearches[index] = search
+        } else {
+            savedSearches.append(search)
+        }
+        persistSavedSearches()
+    }
+
+    func renameSavedSearch(_ id: UUID, to name: String) {
+        guard let index = savedSearches.firstIndex(where: { $0.id == id }), !name.isEmpty else { return }
+        savedSearches[index].name = name
+        persistSavedSearches()
+    }
+
+    func duplicateSavedSearch(_ id: UUID) {
+        guard let original = savedSearches.first(where: { $0.id == id }) else { return }
+        var copy = original
+        copy.id = UUID()
+        copy.name += " copy"
+        savedSearches.insert(copy, at: (savedSearches.firstIndex { $0.id == id } ?? savedSearches.count - 1) + 1)
+        persistSavedSearches()
+    }
+
+    func moveSavedSearches(from source: IndexSet, to destination: Int) {
+        savedSearches.move(fromOffsets: source, toOffset: destination)
         persistSavedSearches()
     }
 
