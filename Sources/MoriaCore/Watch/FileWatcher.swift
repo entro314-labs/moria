@@ -7,6 +7,11 @@ public struct FileChange: Sendable, Equatable {
     /// The whole subtree must be re-crawled: a folder was created or moved in (FSEvents reports
     /// only the folder, not its children), or events below it were coalesced.
     public var rescanSubtree: Bool
+
+    public init(path: String, rescanSubtree: Bool) {
+        self.path = path
+        self.rescanSubtree = rescanSubtree
+    }
 }
 
 /// A batch delivered by `FileWatcher`.

@@ -201,6 +201,12 @@ final class SearchModel {
                 let removed = Set(trashed.keys.map(\.path))
                 items.removeAll { removed.contains($0.result.path) }
                 selection = selection.filter { id in items.contains { $0.id == id } }
+                do {
+                    // The index updates directly: the event stream ignores Moria's own changes.
+                    try await app.controller.apply(removed.map { FileChange(path: $0, rescanSubtree: false) })
+                } catch {
+                    app.lastError = "The index couldn't be updated after moving to the Trash: \(error)"
+                }
             } catch {
                 message = "Couldn't move to the Trash: \(error.localizedDescription)"
             }
