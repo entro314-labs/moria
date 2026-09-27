@@ -211,6 +211,14 @@ public struct RegexSearcher: Sendable {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        // The exit status arrives through the termination handler. `waitUntilExit()` spins a run
+        // loop, and called from a concurrency thread it was seen never to return after ripgrep
+        // had exited (a test run hung there for half an hour).
+        let (exits, exited) = AsyncStream<Int32>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        process.terminationHandler = { process in
+            exited.yield(process.terminationStatus)
+            exited.finish()
+        }
         try process.run()
 
         try await withTaskCancellationHandler {
@@ -236,9 +244,10 @@ public struct RegexSearcher: Sendable {
         } onCancel: {
             process.terminate()
         }
-        process.waitUntilExit()
+        var status: Int32 = 0
+        for await code in exits { status = code }
         // Exit 1 means "no matches"; 2 with output means some files were unreadable.
-        if process.terminationStatus == 2, !Task.isCancelled {
+        if status == 2, !Task.isCancelled {
             let message = String(decoding: (try? stderr.fileHandleForReading.readToEnd()) ?? Data(), as: UTF8.self)
             // Also covers a ripgrep built without PCRE2 (a Homebrew or custom install).
             if message.contains("PCRE2") || message.contains("regex parse error") {

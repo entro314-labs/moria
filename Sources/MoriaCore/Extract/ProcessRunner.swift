@@ -59,6 +59,10 @@ enum ProcessRunner {
                 let stderr = Pipe()
                 process.standardOutput = stdout
                 process.standardError = stderr
+                // Not `waitUntilExit()`, which spins a run loop and can miss the exit (see
+                // `RegexSearcher.ripgrepBatch`).
+                let exited = DispatchSemaphore(value: 0)
+                process.terminationHandler = { _ in exited.signal() }
                 do {
                     try process.run()
                 } catch {
@@ -77,7 +81,7 @@ enum ProcessRunner {
                     }
                 }
                 let errorOutput = (try? stderr.fileHandleForReading.readToEnd()) ?? Data()
-                process.waitUntilExit()
+                exited.wait()
                 if truncated || acceptedStatuses.contains(process.terminationStatus) {
                     continuation.resume(returning: data.prefix(maxBytes))
                 } else {
