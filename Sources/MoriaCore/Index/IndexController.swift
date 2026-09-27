@@ -36,6 +36,8 @@ public actor IndexController {
     private var queuedChanges: [FileChange] = []
     private var queuedEventID: UInt64?
     private var fullScanRequested = false
+    /// Erase the index before the next full scan (see `rebuild()`).
+    private var rebuildRequested = false
     private var wake: AsyncStream<Void>.Continuation?
     private var loop: Task<Void, Never>?
     private let ocrLimiter = AsyncLimiter(limit: 2)
@@ -100,10 +102,11 @@ public actor IndexController {
     }
 
     /// Deletes the whole index and rebuilds it from a full scan.
-    public func rebuild() throws {
-        try database.eraseIndex()
-        state.extractedFiles = 0
-        state.embeddedFiles = 0
+    ///
+    /// The erase happens when the next full scan starts, never while one is running: a scan in
+    /// progress would keep writing under folder ids the erase deleted.
+    public func rebuild() {
+        rebuildRequested = true
         fullScanRequested = true
         wake?.yield()
     }
@@ -111,7 +114,8 @@ public actor IndexController {
     /// Runs a scan (full if never scanned or `full`), then extracts and embeds until nothing is
     /// pending. Used by the CLI; the app uses `start()`.
     public func indexNow(full: Bool) async throws {
-        if try full || resumableEventID() == nil {
+        if try full || fullScanRequested || resumableEventID() == nil {
+            fullScanRequested = false
             try await fullScan()
         }
         while try await extractBatch() {}
@@ -130,8 +134,13 @@ public actor IndexController {
     /// Saves settings and schedules whatever work the change requires.
     public func updateSettings(_ new: MoriaSettings) throws {
         var new = new
-        // FSEvents reports resolved paths (/private/var/..., not /var/...).
-        new.roots = new.roots.map { ($0 as NSString).resolvingSymlinksInPath }
+        // FSEvents reports canonical paths (/private/tmp/..., not /tmp/...). NSString and URL
+        // symlink resolution strip "/private", so events under such roots would be dropped.
+        new.roots = new.roots.map { root in
+            guard let resolved = realpath(root, nil) else { return root }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
         let old = settings
         settings = new
         try database.saveSettings(new)
@@ -148,6 +157,9 @@ public actor IndexController {
         if old.ocrScannedPDFs != new.ocrScannedPDFs { requeueKinds.insert(.pdf) }
         if crawlChanged || scopeChanged {
             fullScanRequested = true
+            // Forget the resume point until that scan completes, so any controller (the app at
+            // its next launch, after a change made by the CLI) scans instead of resuming.
+            try database.setMeta(MetaKey.eventID, nil)
             if watcher != nil { try startWatcher(since: nil) }
         }
         // Scope changes are applied by the full scan, which re-marks excluded files.
@@ -244,6 +256,12 @@ public actor IndexController {
     // MARK: - Scanning
 
     private func fullScan() async throws {
+        if rebuildRequested {
+            rebuildRequested = false
+            try database.eraseIndex()
+            state.extractedFiles = 0
+            state.embeddedFiles = 0
+        }
         state.scannedEntries = 0
         state.unreadableDirectories = 0
         publish(phase: .scanning)
@@ -262,6 +280,12 @@ public actor IndexController {
         } catch {
             crawl.cancel()
             throw error
+        }
+        // Cancellation ends the stream without an error. A partial crawl must not prune, and
+        // the crawl thread must be released.
+        if Task.isCancelled {
+            crawl.cancel()
+            throw CancellationError()
         }
         state.unreadableDirectories = crawl.unreadableDirectories
         try database.pruneUnseen(before: generation)

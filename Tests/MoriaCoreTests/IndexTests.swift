@@ -119,6 +119,36 @@ struct IndexTests {
         #expect(try await search(engine, "menu -cafe").isEmpty)
     }
 
+    @Test func settingsChangedByAnotherProcessTriggerAScan() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let extra = try TestSupport.makeTempDirectory()
+        try Data("wombat burrow survey".utf8).write(to: extra.appending(path: "field.txt"))
+
+        // `moria config --set roots=…` changes the roots from its own controller, then exits.
+        let cli = try IndexController(database: database)
+        var settings = await cli.settings
+        settings.roots.append(extra.path)
+        try await cli.updateSettings(settings)
+
+        // The next controller (the app at launch) must scan instead of resuming from FSEvents.
+        let app = try IndexController(database: database)
+        try await app.indexNow(full: false)
+        let engine = SearchEngine(database: database, home: root.path)
+        #expect(try await engine.search(QueryParser().parse("wombat")).map(\.name) == ["field.txt"])
+    }
+
+    @Test func cancelledScanKeepsTheIndex() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let files = try database.stats().files
+
+        let scan = Task { try await controller.scanOnly() }
+        scan.cancel()
+        _ = await scan.result
+        #expect(try database.stats().files == files)
+    }
+
     @Test func appliesModificationsAndDeletions() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)
@@ -145,11 +175,19 @@ struct IndexTests {
     @Test func pauseStopsWorkAndRebuildStartsOver() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)
-        try await controller.rebuild()
-        #expect(try database.stats().files == 0)
-        #expect(try database.meta("scan.generation") == nil)
-        try await controller.indexNow(full: false)  // no resumable state: scans again
+        try await controller.indexNow(full: true)
+        #expect(try database.meta("scan.generation") == "2")
+        // The erase waits for the work loop, so it can never interleave with a running scan
+        // (which would leave rows under deleted folders and a reset generation counter).
+        await controller.rebuild()
+        #expect(try database.stats().files > 0)
+        try await controller.indexNow(full: false)  // the requested rebuild runs here
+        #expect(try database.meta("scan.generation") == "1")
         #expect(try database.stats().contentIndexed == 4)
+        let orphans = try await database.pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE dirId NOT IN (SELECT id FROM dir)")
+        }
+        #expect(orphans == 0)
         await controller.setPaused(true)
         #expect(await controller.currentProgress().isPaused)
     }
@@ -161,7 +199,11 @@ struct IndexTests {
         defer { Task { await controller.stop() } }
         let engine = SearchEngine(database: database, home: root.path)
 
-        try Data("quokka sighting notes".utf8).write(to: root.appending(path: "Documents/new.txt"))
+        // Written by another process: the stream ignores this process's own events.
+        let writer = try Process.run(URL(fileURLWithPath: "/bin/sh"), arguments: [
+            "-c", "echo 'quokka sighting notes' > \"$0\"", root.appending(path: "Documents/new.txt").path,
+        ])
+        writer.waitUntilExit()
         var found: [String] = []
         for _ in 0..<40 where found.isEmpty {
             try await Task.sleep(for: .milliseconds(250))

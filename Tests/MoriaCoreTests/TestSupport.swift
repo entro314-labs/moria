@@ -3,12 +3,15 @@ import Foundation
 @testable import MoriaCore
 
 enum TestSupport {
-    /// A fresh directory with symlinks resolved (FSEvents reports `/private/var/...` paths).
+    /// A fresh directory under its canonical path (`/private/var/...`, as FSEvents and the
+    /// index report it; `resolvingSymlinksInPath()` would strip `/private`).
     static func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "moria-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url.resolvingSymlinksInPath()
+        guard let resolved = realpath(url.path, nil) else { throw POSIXError(.ENOENT) }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
     }
 
     static func writePDF(text: String, to url: URL) throws {

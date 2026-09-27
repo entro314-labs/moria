@@ -179,13 +179,7 @@ final class AppModel {
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        Task {
-            do {
-                try await controller.rebuild()
-            } catch {
-                lastError = "The index could not be rebuilt: \(error)"
-            }
-        }
+        Task { await controller.rebuild() }
     }
 
     private func registerHotKey() {
