@@ -213,6 +213,12 @@ public final class SearchEngine: Sendable {
         }
     }
 
+    /// Metadata for specific files (e.g. regex hits), keyed by id.
+    public func metadata(for ids: [Int64]) async throws -> [Int64: SearchResult] {
+        guard !ids.isEmpty else { return [:] }
+        return try fetch(ids: ids, query: SearchQuery())
+    }
+
     private func fetch(ids: [Int64], query: SearchQuery) throws -> [Int64: SearchResult] {
         let filter = FilterSQL(query: query, home: home)
         let idList = ids.map(String.init).joined(separator: ",")
@@ -319,6 +325,9 @@ struct FilterSQL {
         if !query.folders.isEmpty {
             let clauses = query.folders.map { _ in "(d.path = ? OR (d.path >= ? AND d.path < ?))" }.joined(separator: " OR ")
             add("(\(clauses))", values: query.folders.flatMap { [$0, $0 + "/", $0 + "0"] })
+        }
+        for folder in query.excludedFolders {
+            add("NOT (d.path = ? OR (d.path >= ? AND d.path < ?))", values: [folder, folder + "/", folder + "0"])
         }
         if let hidden = query.hidden {
             add(hidden ? "(f.isHidden = 1 OR d.path LIKE '%/.%')" : "(f.isHidden = 0 AND d.path NOT LIKE '%/.%')")

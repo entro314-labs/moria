@@ -23,6 +23,8 @@ public struct SearchQuery: Sendable, Equatable {
     public var created: DateInterval?
     /// `in:` folders; a result must be inside one of them.
     public var folders: [String] = []
+    /// `-in:` folders; results inside them are dropped.
+    public var excludedFolders: [String] = []
     /// nil = don't care.
     public var hidden: Bool?
     public var cloudOnly: Bool?
@@ -35,7 +37,7 @@ public struct SearchQuery: Sendable, Equatable {
 
     public var hasFilters: Bool {
         !extensions.isEmpty || !kinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
-            || created != nil || !folders.isEmpty || hidden != nil || cloudOnly != nil
+            || created != nil || !folders.isEmpty || !excludedFolders.isEmpty || hidden != nil || cloudOnly != nil
     }
 
     public var isEmpty: Bool {
@@ -52,7 +54,7 @@ public struct SearchQuery: Sendable, Equatable {
 ///
 ///     invoice "rent receipt" -draft ext:pdf,docx kind:image size:>10mb size:1mb..5mb
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
-///     content:lease hidden:no cloud:no
+///     content:lease hidden:no cloud:no -in:~/Library
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -75,7 +77,12 @@ public struct QueryParser: Sendable {
             }
             let text = token.text
             if text.hasPrefix("-"), text.count > 1 {
-                query.excludedTerms.append(String(text.dropFirst()))
+                let rest = text.dropFirst()
+                if let key = ["in:", "path:", "folder:"].first(where: { rest.lowercased().hasPrefix($0) }), rest.count > key.count {
+                    query.excludedFolders.append(expand(String(rest.dropFirst(key.count))))
+                } else {
+                    query.excludedTerms.append(String(rest))
+                }
                 continue
             }
             if let colon = text.firstIndex(of: ":"), colon != text.startIndex {

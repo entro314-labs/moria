@@ -19,6 +19,8 @@ struct IndexTests {
         try Data("ignored dependency".utf8).write(to: root.appending(path: "node_modules/pkg/index.js"))
         try Data("inside bundle".utf8).write(to: root.appending(path: "Tools.app/Contents/Info.plist"))
         try Data("draft rent receipt".utf8).write(to: root.appending(path: "Documents/draft.txt"))
+        try fm.createDirectory(at: root.appending(path: "App/build"), withIntermediateDirectories: true)
+        try Data("compiled artifact zebra".utf8).write(to: root.appending(path: "App/build/output.txt"))
     }
 
     func search(_ engine: SearchEngine, _ text: String) async throws -> [String] {
@@ -49,6 +51,16 @@ struct IndexTests {
         // Snippets come from the file (text) since the content index stores no text.
         let hit = try await engine.search(QueryParser().parse("apartment")).first!
         #expect(try await engine.snippet(for: hit, query: QueryParser().parse("apartment"))?.contains("\u{1}apartment\u{2}") == true)
+
+        // Content-excluded folders (build output) are indexed by name only.
+        #expect(try await search(engine, "output") == ["App/build/output.txt"])
+        #expect(try await search(engine, "zebra").isEmpty)
+        // Changing an extraction setting must not pull excluded files back in.
+        var settings = await controller.settings
+        settings.maxContentKilobytes = 128
+        try await controller.updateSettings(settings)
+        try await controller.indexNow(full: false)
+        #expect(try await search(engine, "zebra").isEmpty)
 
         let stats = try database.stats()
         #expect(stats.contentPending == 0)

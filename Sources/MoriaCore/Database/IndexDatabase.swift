@@ -13,6 +13,8 @@ public enum ContentState: Int, Sendable, Codable {
     case failed = 3
     /// Cloud placeholder that is not downloaded; content is never fetched.
     case cloudOnly = 4
+    /// In a content-excluded location (settings): indexed by name only.
+    case excluded = 5
 }
 
 /// The on-disk index: file metadata, filename and content full-text tables, embeddings and settings.

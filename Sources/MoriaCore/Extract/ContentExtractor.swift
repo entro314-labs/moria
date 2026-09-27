@@ -46,7 +46,7 @@ struct ContentExtractor: Sendable {
         case .document:
             try await extractDocument(url, ext: ext)
         case .image:
-            try await ocrImageIfEligible(url, path: path)
+            try await ocrImageIfEligible(url, path: path, size: size)
         case .folder, .application, .package, .audio, .video, .archive:
             nil
         }
@@ -180,13 +180,17 @@ struct ContentExtractor: Sendable {
 
     // MARK: - Images
 
-    private func ocrImageIfEligible(_ url: URL, path: String) async throws -> String? {
-        guard ocrImages, isUserLocation(path) else { return nil }
+    static let minOCRSide = 400
+    static let minOCRBytes: Int64 = 30 * 1024
+
+    private func ocrImageIfEligible(_ url: URL, path: String, size: Int64) async throws -> String? {
+        // Icons and UI assets are small; photos of receipts, scans and screenshots are not.
+        guard ocrImages, isUserLocation(path), size >= Self.minOCRBytes else { return nil }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              min(width, height) >= 200, max(width, height) >= 400
+              min(width, height) >= Self.minOCRSide
         else { return nil }
         return try await ocrLimiter.run { try await OCR.recognize(url) }
     }

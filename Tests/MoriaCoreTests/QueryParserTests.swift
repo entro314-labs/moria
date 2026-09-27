@@ -77,3 +77,20 @@ struct QueryParserTests {
         #expect(nl.dateInterval(.specificMonth, year: nil, month: 13) == nil)
     }
 }
+
+extension QueryParserTests {
+    @Test func excludedFolders() {
+        let query = parser.parse("notes -in:~/Library -draft")
+        #expect(query.excludedFolders == ["/Users/test/Library"])
+        #expect(query.excludedTerms == ["draft"])
+    }
+
+    @Test func formatterRoundTrips() {
+        let text = #"invoice "rent receipt" name:2024 -draft ext:docx,pdf kind:document size:>10mb modified:2026-03-01..2026-05-31 in:~/Documents -in:~/Library hidden:no"#
+        let parsed = parser.parse(text)
+        let formatted = QueryFormatter(calendar: calendar, home: "/Users/test").string(from: parsed)
+        #expect(parser.parse(formatted) == parsed)
+        let open = parser.parse("modified:<2025 created:>2026-01-15")
+        #expect(parser.parse(QueryFormatter(calendar: calendar, home: "/Users/test").string(from: open)) == open)
+    }
+}

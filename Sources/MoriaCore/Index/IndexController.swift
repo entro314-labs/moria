@@ -4,7 +4,7 @@ import Foundation
 /// Snapshot of indexing activity, published to the UI and CLI.
 public struct IndexProgress: Sendable, Equatable {
     public enum Phase: String, Sendable {
-        case idle, scanning, updating, extracting, embedding
+        case idle, scanning, updating, extracting, recognizingText, embedding
     }
 
     public var phase: Phase = .idle
@@ -17,6 +17,8 @@ public struct IndexProgress: Sendable, Equatable {
     public var unreadableDirectories = 0
     public var lastScanDate: Date?
     public var lastError: String?
+
+    public init() {}
 }
 
 /// Owns the index lifecycle: full scans, FSEvents-driven incremental updates, content
@@ -121,15 +123,20 @@ public actor IndexController {
         let scopeChanged = old.contentExcludedPaths != new.contentExcludedPaths
             || old.contentExcludedNames != new.contentExcludedNames
             || old.extractHiddenContent != new.extractHiddenContent
-        let extractionChanged = scopeChanged || old.maxContentKilobytes != new.maxContentKilobytes
+        let limitsChanged = old.maxContentKilobytes != new.maxContentKilobytes
             || old.maxFileMegabytes != new.maxFileMegabytes
-            || old.ocrImages != new.ocrImages || old.ocrScannedPDFs != new.ocrScannedPDFs
+        var requeueKinds: Set<FileKind> = []
+        if old.ocrImages != new.ocrImages { requeueKinds.insert(.image) }
+        if old.ocrScannedPDFs != new.ocrScannedPDFs { requeueKinds.insert(.pdf) }
         if crawlChanged || scopeChanged {
             fullScanRequested = true
             if watcher != nil { try startWatcher(since: nil) }
         }
-        if extractionChanged {
+        // Scope changes are applied by the full scan, which re-marks excluded files.
+        if limitsChanged {
             try database.requeueContent()
+        } else if !requeueKinds.isEmpty {
+            try database.requeueContent(kinds: requeueKinds)
         }
         if old.semanticSearchEnabled, !new.semanticSearchEnabled {
             try database.clearEmbeddings()
@@ -316,12 +323,18 @@ public actor IndexController {
         case changed(String)
     }
 
-    /// Extracts one batch of pending files. Returns false when nothing is pending.
+    /// Extracts one batch of pending files: text formats first, then images (OCR, ~10x
+    /// slower per file). Returns false when nothing is pending.
     private func extractBatch() async throws -> Bool {
-        let batch = try database.pendingFiles(limit: 128)
+        var phase = IndexProgress.Phase.extracting
+        var batch = try database.pendingFiles(limit: 128, images: false)
+        if batch.isEmpty {
+            phase = .recognizingText
+            batch = try database.pendingFiles(limit: 32, images: true)
+        }
         guard !batch.isEmpty else { return false }
         state.remainingFiles = try database.pendingCount()
-        publish(phase: .extracting)
+        publish(phase: phase)
 
         let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter)
         let maxFileBytes = maxFileBytes
@@ -348,7 +361,7 @@ public actor IndexController {
         try apply(changed)
         state.extractedFiles += results.count
         state.remainingFiles = max(0, state.remainingFiles - results.count)
-        publish(phase: .extracting)
+        publish(phase: phase)
         return true
     }
 

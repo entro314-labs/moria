@@ -45,6 +45,8 @@ struct Index: AsyncParsableCommand {
                     print("\(elapsed)  scanning   \(progress.scannedEntries) entries")
                 case .extracting:
                     print("\(elapsed)  extracting \(progress.extractedFiles) done, \(progress.remainingFiles) left")
+                case .recognizingText:
+                    print("\(elapsed)  OCR        \(progress.extractedFiles) done, \(progress.remainingFiles) left")
                 case .embedding:
                     print("\(elapsed)  embedding  \(progress.embeddedFiles) files")
                 case .updating, .idle:

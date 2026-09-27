@@ -50,8 +50,8 @@ struct MetadataWriter {
                         WHEN file.mtime != excluded.mtime OR file.size != excluded.size
                              OR file.isCloudOnly != excluded.isCloudOnly
                         THEN excluded.contentState
-                        -- Moved into a content-excluded location (or scope settings changed).
-                        WHEN excluded.contentState = 2 AND file.contentState IN (0, 1, 3) THEN 2
+                        -- Moved into or out of a content-excluded location, or scope settings changed.
+                        WHEN (excluded.contentState = 5) != (file.contentState = 5) THEN excluded.contentState
                         ELSE file.contentState END
                 """)
             for meta in batch {
@@ -77,7 +77,9 @@ struct MetadataWriter {
     }
 
     private func initialState(_ meta: FileMeta) -> ContentState {
-        if meta.isDir || !meta.contentEligible || meta.size == 0 || meta.size > maxFileBytes { return .none }
+        if meta.isDir { return .none }
+        if !meta.contentEligible { return .excluded }
+        if meta.size == 0 || meta.size > maxFileBytes { return .none }
         if meta.isCloudOnly { return .cloudOnly }
         switch meta.kind {
         case .folder, .application, .package, .audio, .video, .archive: return .none
@@ -123,13 +125,15 @@ extension IndexDatabase {
         }
     }
 
-    func pendingFiles(limit: Int) throws -> [PendingFile] {
+    /// Next files to extract, newest first. `images: false` returns everything except images,
+    /// so fast text extraction finishes before the slow OCR pass (`images: true`) starts.
+    func pendingFiles(limit: Int, images: Bool) throws -> [PendingFile] {
         try pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
                 FROM file f JOIN dir d ON d.id = f.dirId
-                WHERE f.contentState = 0 ORDER BY f.mtime DESC LIMIT ?
-                """, arguments: [limit]).map { row in
+                WHERE f.contentState = 0 AND (f.kind = 'image') = ? ORDER BY f.mtime DESC LIMIT ?
+                """, arguments: [images, limit]).map { row in
                 PendingFile(
                     id: row["id"], path: row["path"], ext: row["ext"],
                     kind: FileKind(rawValue: row["kind"]) ?? .other, size: row["size"], mtime: row["mtime"]
@@ -164,13 +168,16 @@ extension IndexDatabase {
         }
     }
 
-    /// Resets extracted (or failed/skipped) files to pending, e.g. after extraction settings changed.
-    public func requeueContent() throws {
+    /// Resets eligible files (indexed, skipped or failed) to pending after extraction settings
+    /// changed; `kinds` limits it to the affected formats. Excluded and cloud-only files stay put.
+    public func requeueContent(kinds: Set<FileKind>? = nil) throws {
         try pool.write { db in
-            try db.execute(sql: """
-                UPDATE file SET contentState = 0
-                WHERE contentState IN (1, 2, 3) AND isDir = 0 AND isCloudOnly = 0 AND size > 0
-                """)
+            var sql = "UPDATE file SET contentState = 0 WHERE contentState IN (1, 2, 3) AND isDir = 0 AND size > 0"
+            if let kinds {
+                guard !kinds.isEmpty else { return }
+                sql += " AND kind IN (\(kinds.map { "'\($0.rawValue)'" }.sorted().joined(separator: ",")))"
+            }
+            try db.execute(sql: sql)
         }
     }
 
