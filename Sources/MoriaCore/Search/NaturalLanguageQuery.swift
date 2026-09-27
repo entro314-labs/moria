@@ -56,7 +56,8 @@ public struct NaturalLanguageQuery: Sendable {
 
     static let instructions = """
         You convert a person's request to find files on their Mac into search filters. \
-        keywords are only the distinctive words to look for inside files or names: drop filler words, \
+        keywords are only the distinctive words to look for inside files or names, in singular base form \
+        (invoice, not invoices): drop filler words, \
         drop words that only describe the file type or the date. Use fileKinds for broad types and \
         extensions only when a specific format is named. Choose datePeriod only if the request mentions time. \
         Seasons: spring is March to May, summer June to August, autumn September to November, winter December to February.
@@ -65,8 +66,10 @@ public struct NaturalLanguageQuery: Sendable {
     func interpretation(of parsed: ParsedRequest) -> Interpretation {
         var query = SearchQuery()
         query.terms = parsed.keywords.flatMap { $0.split(separator: " ").map(String.init) }.filter { !$0.isEmpty }
-        query.kinds = Set(parsed.fileKinds.map(\.fileKind))
         query.extensions = Set(parsed.extensions.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ". ")) }.filter { !$0.isEmpty })
+        // A named format is more specific than a broad type, and the two filters combine with
+        // AND ("PDF documents" would otherwise need kind=document and ext=pdf, which never match).
+        query.kinds = query.extensions.isEmpty ? Set(parsed.fileKinds.map(\.fileKind)) : []
         if let interval = dateInterval(parsed.datePeriod, year: parsed.year, month: parsed.month) {
             if parsed.dateField == .created { query.created = interval } else { query.modified = interval }
         }
@@ -131,8 +134,12 @@ public struct NaturalLanguageQuery: Sendable {
         let formatter = DateIntervalFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
-        if let modified = query.modified { parts.append("modified " + formatter.string(from: modified)!) }
-        if let created = query.created { parts.append("created " + formatter.string(from: created)!) }
+        // Intervals end exclusively at midnight; show the last included day.
+        func inclusive(_ interval: DateInterval) -> String {
+            formatter.string(from: interval.start, to: max(interval.start, interval.end.addingTimeInterval(-1)))
+        }
+        if let modified = query.modified { parts.append("modified " + inclusive(modified)) }
+        if let created = query.created { parts.append("created " + inclusive(created)) }
         if let min = query.minSize { parts.append("≥ " + ByteCountFormatter.string(fromByteCount: min, countStyle: .file)) }
         if let max = query.maxSize { parts.append("≤ " + ByteCountFormatter.string(fromByteCount: max, countStyle: .file)) }
         return parts.isEmpty ? "all files" : parts.joined(separator: " · ")

@@ -94,3 +94,17 @@ extension QueryParserTests {
         #expect(parser.parse(QueryFormatter(calendar: calendar, home: "/Users/test").string(from: open)) == open)
     }
 }
+
+extension QueryParserTests {
+    @Test func namedFormatsWinOverBroadKinds() {
+        let nl = NaturalLanguageQuery(now: now, calendar: calendar)
+        let parsed = ParsedRequest(
+            keywords: ["invoices"], fileKinds: [.document], extensions: ["PDF"], datePeriod: .spring,
+            dateField: .modified, year: nil, month: nil, minimumSizeMegabytes: nil, maximumSizeMegabytes: nil
+        )
+        let interpretation = nl.interpretation(of: parsed)
+        #expect(interpretation.query.extensions == ["pdf"])
+        #expect(interpretation.query.kinds.isEmpty)
+        #expect(interpretation.summary.contains("May 31"))
+    }
+}

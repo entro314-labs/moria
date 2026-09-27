@@ -8,9 +8,14 @@ enum Snippet {
     static let radius = 90
 
     static func make(from text: String, terms: [String]) -> String? {
-        let terms = terms.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var terms = terms.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
-        let first = terms.compactMap { text.range(of: $0, options: options) }.min { $0.lowerBound < $1.lowerBound }
+        var first = terms.compactMap { text.range(of: $0, options: options) }.min { $0.lowerBound < $1.lowerBound }
+        if first == nil {
+            // The index stems English words; highlight the stem ("invoices" -> "invoic").
+            terms = terms.map(stem)
+            first = terms.compactMap { text.range(of: $0, options: options) }.min { $0.lowerBound < $1.lowerBound }
+        }
         guard let first else { return nil }
 
         var start = text.index(first.lowerBound, offsetBy: -radius, limitedBy: text.startIndex) ?? text.startIndex
@@ -39,6 +44,15 @@ enum Snippet {
         result += window[cursor...]
         if end < text.endIndex { result += "…" }
         return result.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+    }
+
+    /// Strips common English inflections, approximating the index's Porter stemmer.
+    static func stem(_ word: String) -> String {
+        let lower = word.lowercased()
+        for suffix in ["ies", "es", "s", "ing", "ed", "ly"] where lower.hasSuffix(suffix) && lower.count > suffix.count + 3 {
+            return String(word.dropLast(suffix.count))
+        }
+        return word
     }
 
     /// The opening words of a text, for results that matched by meaning rather than words.

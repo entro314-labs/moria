@@ -34,6 +34,8 @@ struct IndexTests {
 
         #expect(try await search(engine, "receipt").contains("Documents/Taxes/receipt.txt"))
         #expect(try await search(engine, "apartment") == ["Documents/Taxes/receipt.txt"])
+        // English stemming: plural query, singular text.
+        #expect(try await search(engine, "apartments") == ["Documents/Taxes/receipt.txt"])
         // Greek matches without accents or capitals, via the folding tokenizer.
         #expect(try await search(engine, "αποδειξη") == ["Documents/greek-note.md"])
         // Substring filename match (trigram).
@@ -139,9 +141,16 @@ struct IndexTests {
             (ids[1], [unit([0.6, 0.8, 0, 0])]),
         ])
         let index = try VectorIndex(database: database)
-        let ranked = index.search(unit([0, 1, 0, 0]), limit: 5, minimumScore: 0)
-        #expect(ranked.map(\.fileID) == [ids[0], ids[1]])
-        #expect(abs(ranked[0].score - 1) < 0.01)
-        #expect(abs(ranked[1].score - 0.8) < 0.01)
+        let ranking = index.search(unit([0, 1, 0, 0]), limit: 5)
+        #expect(ranking.hits.map(\.fileID) == [ids[0], ids[1]])
+        #expect(abs(ranking.hits[0].score - 1) < 0.01)
+        #expect(abs(ranking.hits[1].score - 0.8) < 0.01)
+        // Only the clear winner stands out (0.8 is within reach of the best but not of 2σ).
+        let standouts = SearchEngine.standouts(VectorIndex.Ranking(
+            hits: [(1, 0.84), (2, 0.79), (3, 0.72)], mean: 0.70, deviation: 0.03, count: 1000))
+        #expect(standouts.map(\.fileID) == [1, 2])
+        #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [(1, 0.84), (2, 0.72)], mean: 0.70, deviation: 0.03, count: 1000)).map(\.fileID) == [1])
+        // Small index: one deviation.
+        #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [(1, 0.84), (2, 0.79)], mean: 0.75, deviation: 0.056, count: 5)).map(\.fileID) == [1])
     }
 }

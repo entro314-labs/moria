@@ -88,8 +88,10 @@ public final class IndexDatabase: Sendable {
                 CREATE VIRTUAL TABLE name_fts USING fts5(
                     nameKey, content='', contentless_delete=1, tokenize='trigram'
                 );
+                -- porter: English stemming ("invoices" finds "invoice"); non-English words pass
+                -- through to the folding tokenizer unchanged.
                 CREATE VIRTUAL TABLE content_fts USING fts5(
-                    body, content='', contentless_delete=1, tokenize='moria_fold'
+                    body, content='', contentless_delete=1, tokenize='porter moria_fold'
                 );
                 -- Extracted text is stored only where re-extracting it is expensive (PDF, Office,
                 -- OCR). Snippets for text and code files are read from the file itself.

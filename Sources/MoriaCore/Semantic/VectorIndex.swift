@@ -51,9 +51,18 @@ final class VectorIndex: Sendable {
 
     var isEmpty: Bool { fileIDs.isEmpty }
 
-    /// Returns file IDs ranked by their best chunk's cosine similarity to `query`.
-    func search(_ query: [Float], limit: Int, minimumScore: Float) -> [(fileID: Int64, score: Float)] {
-        guard !fileIDs.isEmpty, query.count == dimension else { return [] }
+    struct Ranking {
+        /// File IDs by their best chunk's cosine similarity, highest first.
+        var hits: [(fileID: Int64, score: Float)]
+        /// Mean and standard deviation of all chunk similarities, to judge which hits stand out.
+        var mean: Float
+        var deviation: Float
+        /// Number of chunks compared.
+        var count: Int
+    }
+
+    func search(_ query: [Float], limit: Int) -> Ranking {
+        guard !fileIDs.isEmpty, query.count == dimension else { return Ranking(hits: [], mean: 0, deviation: 0, count: 0) }
         let blockRows = 4096
         var scores = [Float](repeating: 0, count: fileIDs.count)
         var block = [Float](repeating: 0, count: blockRows * dimension)
@@ -82,11 +91,15 @@ final class VectorIndex: Sendable {
                 }
             }
         }
+        var mean: Float = 0
+        var deviation: Float = 0
+        vDSP_normalize(scores, 1, nil, 1, &mean, &deviation, vDSP_Length(scores.count))
         var best: [Int64: Float] = [:]
-        for (index, score) in scores.enumerated() where score >= minimumScore {
+        for (index, score) in scores.enumerated() {
             let id = fileIDs[index]
             if score > best[id, default: -1] { best[id] = score }
         }
-        return best.sorted { $0.value > $1.value }.prefix(limit).map { ($0.key, $0.value) }
+        let hits = best.sorted { $0.value > $1.value }.prefix(limit).map { (fileID: $0.key, score: $0.value) }
+        return Ranking(hits: hits, mean: mean, deviation: deviation, count: scores.count)
     }
 }

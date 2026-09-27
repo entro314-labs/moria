@@ -114,11 +114,19 @@ public final class SearchEngine: Sendable {
     private func semanticMatches(_ query: SearchQuery, limit: Int) async throws -> [Int64] {
         guard let vector = try await embedder.embedQuery(query.semanticText) else { return [] }
         let index = try await vectors.index(for: database)
-        let top = index.search(vector, limit: limit, minimumScore: 0)
-        guard let best = top.first?.score else { return [] }
-        // Mean-pooled sentence vectors sit in a narrow cosine band; keep only hits close to the best.
-        let cutoff = max(0.8, best - 0.08)
-        return top.filter { $0.score >= cutoff }.map(\.fileID)
+        let ranking = index.search(vector, limit: limit)
+        return Self.standouts(ranking).map(\.fileID)
+    }
+
+    /// Hits that stand out from the corpus. Absolute cosine values shift with query length
+    /// (short queries score ~0.6, sentences ~0.8), so the cutoff is relative: two standard
+    /// deviations above the mean similarity (one for small indexes, where even the best match
+    /// can't stand out that far), and near the best hit.
+    static func standouts(_ ranking: VectorIndex.Ranking) -> [(fileID: Int64, score: Float)] {
+        guard let best = ranking.hits.first?.score else { return [] }
+        let deviations: Float = ranking.count >= 200 ? 2 : 1
+        let cutoff = max(ranking.mean + deviations * ranking.deviation, best - 0.06)
+        return ranking.hits.filter { $0.score >= cutoff }
     }
 
     private func filterOnly(_ query: SearchQuery, limit: Int) throws -> [SearchResult] {
