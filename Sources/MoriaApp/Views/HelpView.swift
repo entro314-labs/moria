@@ -49,7 +49,7 @@ struct HelpView: View {
         switch topic {
         case .searching:
             paragraph("Type in the search field at the top right. Results appear as you type and match file names and the text inside files. Each result says why it matched: **Name**, **Contents** (with the number of matching lines), **Text in image**, or **Meaning**.")
-            paragraph("Use the scope bar under the toolbar to search **Everything**, only **Names**, only **Contents**, or with a **Regex**. The sidebar narrows by kind, date, size and location. Every active filter appears as a chip under the toolbar; click × to remove it. When results mix kinds, the chips on the right narrow to one kind in one click, or leave it out with Option-click.")
+            paragraph("Use the mode menu at the start of the filter bar to search **Everything**, only **Names**, only **Contents**, with a **Regex**, or to **Ask** in plain language (when turned on). The **+ Filter** menus narrow by kind, date, size and location. Every active filter appears as a chip under the toolbar; click × to remove it. When results mix kinds, the chips on the right narrow to one kind in one click, or leave it out with Option-click.")
             paragraph("Select a result to preview it on the right, with every matching line listed below the preview. Press Space for Quick Look, Return to open, ⌘R to show it in Finder, and ⌘K for more actions. Save a search with ⌘S to keep it in the sidebar.")
         case .syntax:
             SyntaxTable()
@@ -65,8 +65,8 @@ struct HelpView: View {
                 ("⌘K", "Actions for the selection"),
                 ("⌘C / ⌥⌘C", "Copy files / copy paths"),
                 ("⌘⌫", "Move to Trash"),
-                ("⌘1 … ⌘4", "Everything, Names, Contents, Regex"),
-                ("⇧⌘M / ⇧⌘A", "Search by meaning / Ask (when turned on)"),
+                ("⌘1 … ⌘5", "Everything, Names, Contents, Regex, Ask (when turned on)"),
+                ("⇧⌘M", "Search by meaning (when turned on)"),
                 ("⌘S", "Save search"),
                 ("⇧⌘F", "Criteria builder"),
                 ("⌥⌘R", "Regex builder"),

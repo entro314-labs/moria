@@ -59,6 +59,7 @@ struct MainView: View {
         .focusedSceneValue(\.searchModel, model)
         .focusedSceneValue(\.inspectorVisible, $showInspector)
         .focusedSceneValue(\.exportResults, $exporting)
+        .focusedSceneValue(\.searchFieldFocused, searchFocused)
         .fileExporter(isPresented: $exporting, document: CSVDocument(text: model.exportCSV()),
                       contentType: .commaSeparatedText, defaultFilename: "Moria Results") { result in
             if case let .failure(error) = result { app.lastError = "Export failed: \(error.localizedDescription)" }

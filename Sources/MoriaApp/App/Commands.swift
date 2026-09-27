@@ -7,6 +7,8 @@ extension FocusedValues {
     @Entry var inspectorVisible: Binding<Bool>?
     /// Set to true to show the export panel of the focused window.
     @Entry var exportResults: Binding<Bool>?
+    /// The search field of the focused window is being edited.
+    @Entry var searchFieldFocused: Bool?
 }
 
 /// Menu commands for everything reachable from the toolbar and results (HIG: every toolbar
@@ -15,9 +17,13 @@ struct MoriaCommands: Commands {
     @FocusedValue(\.searchModel) private var model
     @FocusedValue(\.inspectorVisible) private var inspectorVisible
     @FocusedValue(\.exportResults) private var exportResults
+    @FocusedValue(\.searchFieldFocused) private var searchFieldFocused
     let toggleQuickPanel: () -> Void
 
     private var noSelection: Bool { model?.selection.isEmpty ?? true }
+    /// Menu shortcuts win over the field editor: while typing, ⌘⌫ and ⌘↓ must edit the text
+    /// (as in Finder) rather than trash or open the selected result.
+    private var editingText: Bool { searchFieldFocused == true }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -25,7 +31,7 @@ struct MoriaCommands: Commands {
             Divider()
             Button("Open") { model?.openSelection() }
                 .keyboardShortcut(.downArrow, modifiers: .command)
-                .disabled(noSelection)
+                .disabled(noSelection || editingText)
             OpenWithMenu(urls: model?.selectedURLs ?? [])
             Button("Show in Finder") { model?.revealSelection() }
                 .keyboardShortcut("r")
@@ -39,7 +45,7 @@ struct MoriaCommands: Commands {
             Divider()
             Button("Move to Trash") { model?.moveSelectionToTrash() }
                 .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(noSelection)
+                .disabled(noSelection || editingText)
             Divider()
             Button("Save Search…") { model?.showSavePrompt = true }
                 .keyboardShortcut("s")
