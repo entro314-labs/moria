@@ -87,8 +87,9 @@ struct MoriaCommands: Commands {
             if let model, model.canUseMeaning {
                 Toggle("Search by Meaning", isOn: Binding(get: { model.useMeaning }, set: { model.useMeaning = $0 }))
                     .keyboardShortcut("m", modifiers: [.command, .shift])
+                    .disabled(model.mode == .regex)  // as in the toolbar: regex has no meaning matches
             }
-            Picker("Sort By", selection: Binding(get: { model?.sort ?? .relevance }, set: { model?.sort = $0 })) {
+            Picker("Sort By", selection: Binding(get: { model?.sort ?? .relevance }, set: { model?.sort(by: $0) })) {
                 ForEach(ResultSort.allCases) { Text($0.rawValue).tag($0) }
             }
             .disabled(model == nil)

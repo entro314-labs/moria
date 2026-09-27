@@ -34,7 +34,7 @@ struct ResultsTable: NSViewRepresentable {
             tableColumn.width = column.width
             tableColumn.minWidth = column.minWidth
             tableColumn.isHidden = !column.visibleByDefault
-            tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: column.defaultAscending)
+            tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: column.sort.defaultAscending)
             if column == .size { tableColumn.headerCell.alignment = .right }
             table.addTableColumn(tableColumn)
         }
@@ -90,7 +90,6 @@ struct ResultsTable: NSViewRepresentable {
             }
             var visibleByDefault: Bool { self != .location && self != .ext && self != .created }
             var minWidth: CGFloat { self == .name ? 220 : 60 }
-            var defaultAscending: Bool { self == .name || self == .kind || self == .ext || self == .location }
             var sort: ResultSort {
                 switch self {
                 case .name: .name
@@ -120,9 +119,11 @@ struct ResultsTable: NSViewRepresentable {
             self.model = model
             guard let table else { return }
             if model.items.map(\.id) != items.map(\.id) || model.items != items {
+                // Back to the top for a new search, not when results arrive in batches (regex).
+                let newSearch = model.items.first?.id != items.first?.id
                 items = model.items
                 table.reloadData()
-                if !items.isEmpty { table.scrollRowToVisible(0) }
+                if newSearch, !items.isEmpty { table.scrollRowToVisible(0) }
             } else if model.detailsRevision != detailsRevision {
                 let visible = table.rows(in: table.visibleRect)
                 if visible.length > 0 {
@@ -141,7 +142,10 @@ struct ResultsTable: NSViewRepresentable {
                 table.window?.makeFirstResponder(table)
                 table.togglePreview()
             }
-            _ = model.sort  // observe
+            // The header shows the sort chosen anywhere (column click or View › Sort By).
+            let wanted = Column.allCases.first { $0.sort == model.sort }
+                .map { [NSSortDescriptor(key: $0.rawValue, ascending: model.sortAscending)] } ?? []
+            if table.sortDescriptors != wanted { table.sortDescriptors = wanted }
         }
 
         private func syncSelection() {
@@ -258,7 +262,8 @@ struct ResultsTable: NSViewRepresentable {
 
         @objc func openClicked() {
             guard let table, table.clickedRow >= 0 else { return }
-            FileActions.open(clickedOrSelectedURLs)
+            // The double-click selected the row; opening through the model records the search.
+            model.openSelection()
         }
 
         func openSelection() { model.openSelection() }
@@ -290,7 +295,15 @@ struct ResultsTable: NSViewRepresentable {
             }
             add("Open", "arrow.up.forward.app") { FileActions.open(urls) }
             add("Show in Finder", "folder") { FileActions.reveal(urls) }
-            add("Quick Look", "eye") { [weak self] in self?.table?.togglePreview() }
+            let clickedRow = table?.clickedRow ?? -1
+            add("Quick Look", "eye") { [weak self] in
+                // Quick Look shows the selection, so select the row that was right-clicked.
+                guard let table = self?.table else { return }
+                if clickedRow >= 0, !table.selectedRowIndexes.contains(clickedRow) {
+                    table.selectRowIndexes([clickedRow], byExtendingSelection: false)
+                }
+                table.togglePreview()
+            }
             menu.addItem(.separator())
             add("Copy Path", "doc.on.clipboard") { FileActions.copyPaths(urls) }
             add("Copy File", "doc.on.doc") { FileActions.copyFiles(urls) }
@@ -323,7 +336,7 @@ final class ResultsTableView: NSTableView, QLPreviewPanelDataSource, QLPreviewPa
                 coordinator?.openSelection()
             }
         case 49:  // Space
-            togglePreview()
+            if !selectedRowIndexes.isEmpty { togglePreview() }
         default:
             super.keyDown(with: event)
         }

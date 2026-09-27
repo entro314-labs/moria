@@ -32,6 +32,15 @@ enum ResultSort: String, CaseIterable, Identifiable {
     case ext = "Extension"
 
     var id: String { rawValue }
+
+    /// The direction a column sorts in first: text A–Z; relevance, sizes and dates largest or
+    /// newest first.
+    var defaultAscending: Bool {
+        switch self {
+        case .name, .kind, .path, .ext: true
+        case .relevance, .size, .modified, .created: false
+        }
+    }
 }
 
 /// A row in the results: a search hit plus, for regex searches, the matching lines.
@@ -626,6 +635,12 @@ final class SearchModel {
         filters = saved.filters
         text = saved.text
         search(debounce: false)
+    }
+
+    /// Sorts by `sort` in its usual direction (the Sort By menu).
+    func sort(by sort: ResultSort) {
+        sortAscending = sort.defaultAscending
+        self.sort = sort
     }
 
     func focusResults() {
