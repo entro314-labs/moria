@@ -20,3 +20,4 @@
 - Choose Folder… opens as a sheet on its window instead of blocking the whole app.
 - Reduce Motion: the action palette fades in and match stepping jumps instead of scrolling. Increase Contrast: filter chips and match labels get a stronger fill and a solid outline.
 - The Delete key removes the selected saved search, and ⌘Z brings a deleted saved search back.
+- Edit › Next Match and Previous Match (⌘G / ⇧⌘G) step through the matching lines in the preview.

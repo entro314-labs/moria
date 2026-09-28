@@ -189,17 +189,18 @@ private struct InfoPane: View {
                 HStack {
                     sectionTitle(total == 1 ? "1 Match" : "\(total.formatted()) Matches")
                     Spacer()
-                    // ⌘G / ⇧⌘G step through matches, as in HoudahSpot and Find.
                     // Only the lines drawn below (the first 100) can be stepped to.
                     let shown = min(lines.count, Self.shownLines)
                     ControlGroup {
                         Button("Previous Match", systemImage: "chevron.up") { step(-1, shown, proxy) }
-                            .keyboardShortcut("g", modifiers: [.command, .shift])
+                            .help("Previous match (⇧⌘G)")
                         Button("Next Match", systemImage: "chevron.down") { step(1, shown, proxy) }
-                            .keyboardShortcut("g", modifiers: .command)
+                            .help("Next match (⌘G)")
                     }
                     .controlSize(.small)
                     .fixedSize()
+                    // Edit › Next Match / Previous Match (⌘G / ⇧⌘G), as in HoudahSpot and Find.
+                    .onChange(of: model.matchStep) { _, request in step(request.delta, shown, proxy) }
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(lines.prefix(Self.shownLines).enumerated()), id: \.offset) { index, line in

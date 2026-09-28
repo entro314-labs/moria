@@ -69,6 +69,15 @@ struct MoriaCommands: Commands {
             Button("Regex Builder…") { model?.showRegexBuilder = true }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(model == nil)
+            Divider()
+            // The inspector shows the matching lines, so stepping needs it visible.
+            let canStep = model?.selectionHasMatchLines == true && inspectorVisible?.wrappedValue == true
+            Button("Next Match") { model?.stepMatch(1) }
+                .keyboardShortcut("g")
+                .disabled(!canStep)
+            Button("Previous Match") { model?.stepMatch(-1) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(!canStep)
         }
         CommandGroup(before: .sidebar) {
             ForEach(Array(SearchMode.allCases.enumerated()), id: \.element) { index, mode in

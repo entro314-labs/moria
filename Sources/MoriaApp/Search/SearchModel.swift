@@ -194,6 +194,14 @@ final class SearchModel {
     private(set) var focusSearchRequest = 0
     /// Bumped to toggle the Quick Look panel for the selection.
     private(set) var quickLookRequest = 0
+    /// Asks the inspector to step through its matching lines (Next / Previous Match).
+    private(set) var matchStep = MatchStep()
+
+    struct MatchStep: Equatable {
+        var serial = 0
+        /// +1 next, -1 previous.
+        var delta = 0
+    }
 
     private var activeQuery = SearchQuery()
     private var searchTask: Task<Void, Never>?
@@ -707,6 +715,13 @@ final class SearchModel {
 
     func focusSearch() { focusSearchRequest += 1 }
     func toggleQuickLook() { quickLookRequest += 1 }
+    func stepMatch(_ delta: Int) { matchStep = MatchStep(serial: matchStep.serial + 1, delta: delta) }
+
+    /// The first selected result has matching lines the inspector can step through.
+    var selectionHasMatchLines: Bool {
+        guard let item = selectedItems.first else { return false }
+        return !item.lines.isEmpty || details[item.id]?.lines.isEmpty == false
+    }
 
     var selectedURLs: [URL] { selectedItems.map(\.result.url) }
 

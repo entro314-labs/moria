@@ -7,11 +7,6 @@ reasons.
 Anything that stores new data in the index needs a new migration (`v4`, …); applied migrations
 are never edited.
 
-## Polish
-
-- **Match stepping in the menu bar.** ⌘G / ⇧⌘G exist only as buttons in the inspector, so the
-  menu bar doesn't show them.
-
 ## Nice to have
 
 - **Drop folders onto the window.** Dragging a folder from Finder onto the sidebar or results
