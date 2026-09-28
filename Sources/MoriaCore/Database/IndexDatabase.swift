@@ -223,6 +223,29 @@ public final class IndexDatabase: Sendable {
                 END;
                 """)
         }
+        // Content hashes for finding duplicates, computed when a duplicates search needs them and
+        // valid while the file's size and mtime are unchanged: a hash of the first 64 KB, and of
+        // the whole file once the heads of two same-size files match.
+        migrator.registerMigration("v7-hashes") { db in
+            try db.execute(sql: """
+                CREATE TABLE file_hash (
+                    fileId INTEGER PRIMARY KEY,
+                    size INTEGER NOT NULL,
+                    mtime REAL NOT NULL,
+                    head BLOB NOT NULL,
+                    full BLOB
+                );
+                DROP TRIGGER file_ad;
+                CREATE TRIGGER file_ad AFTER DELETE ON file BEGIN
+                    DELETE FROM name_fts WHERE rowid = old.id;
+                    DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM label_fts WHERE rowid = old.id;
+                    DELETE FROM doc_text WHERE fileId = old.id;
+                    DELETE FROM chunk_vec WHERE fileId = old.id;
+                    DELETE FROM file_hash WHERE fileId = old.id;
+                END;
+                """)
+        }
         return migrator
     }
 

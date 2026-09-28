@@ -55,6 +55,8 @@ struct Collection: Identifiable, Hashable {
     var name: String
     var symbol: String
     var query: String
+    /// Counted for the sidebar and home screen. Duplicates aren't: counting them reads files.
+    var isCounted = true
 
     static let all: [Collection] = [
         Collection(name: "Recent Documents", symbol: "clock",
@@ -66,6 +68,8 @@ struct Collection: Identifiable, Hashable {
         Collection(name: "Recent Code", symbol: "chevron.left.forwardslash.chevron.right",
                    query: "kind:code modified:<14d -in:~/Library hidden:no"),
         Collection(name: "Large Files", symbol: "externaldrive", query: "size:>500mb -in:~/Library"),
+        Collection(name: "Duplicates", symbol: "square.on.square", query: "duplicates:yes size:>1mb -in:~/Library hidden:no",
+                   isCounted: false),
     ]
 }
 

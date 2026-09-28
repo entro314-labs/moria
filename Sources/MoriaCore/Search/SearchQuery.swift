@@ -47,6 +47,9 @@ public struct SearchQuery: Sendable, Equatable {
     public var tags: Set<String> = []
     /// `-tag:`: results with any of these tags are dropped.
     public var excludedTags: Set<String> = []
+    /// `duplicates:yes`: only files with an identical copy among the files matching the rest of
+    /// the query, grouped by content.
+    public var duplicatesOnly = false
     /// `similar:`: rank documents by closeness in meaning to this file (semantic index).
     public var similarTo: String?
 
@@ -65,7 +68,7 @@ public struct SearchQuery: Sendable, Equatable {
     }
 
     public var isEmpty: Bool {
-        !hasTextCriteria && !hasFilters && excludedTerms.isEmpty && similarTo == nil
+        !hasTextCriteria && !hasFilters && excludedTerms.isEmpty && similarTo == nil && !duplicatesOnly
     }
 
     /// Words and phrases match file names only (the Names mode). Phrases move too: left in
@@ -126,7 +129,7 @@ public enum NamePattern: Sendable, Equatable, Hashable {
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
 ///     content:lease hidden:no cloud:no -in:~/Library -kind:image -ext:tmp path:invoices
 ///     name:report* name:*.draft name:=README name:/^IMG_\d{4}$/ similar:~/Documents/lease.pdf
-///     tag:red,"Needs Review" -tag:done taken:2024-07 duration:>10m author:smith
+///     tag:red,"Needs Review" -tag:done taken:2024-07 duration:>10m author:smith duplicates:yes
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -241,6 +244,10 @@ public struct QueryParser: Sendable {
             return true
         case "similar", "like":
             query.similarTo = expand(value)
+            return true
+        case "duplicates", "duplicate", "dupes":
+            guard Self.bool(value) == true else { return false }
+            query.duplicatesOnly = true
             return true
         case "tag", "tags":
             query.tags.formUnion(Self.tags(value))

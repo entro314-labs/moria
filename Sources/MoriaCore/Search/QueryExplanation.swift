@@ -101,6 +101,7 @@ extension QueryParser {
         if let term = query.excludedTerms.first { return chip("Without “\(term)”", "minus.circle", exclusion: true) }
         if let hidden = query.hidden { return chip(hidden ? "Only hidden files" : "No hidden files", "eye.slash") }
         if let cloud = query.cloudOnly { return chip(cloud ? "Only cloud-only files" : "Downloaded files only", "icloud") }
+        if query.duplicatesOnly { return chip("Duplicates only", "square.on.square") }
         if let similar = query.similarTo { return chip("Similar to " + (similar as NSString).lastPathComponent, "sparkles") }
         return nil
     }

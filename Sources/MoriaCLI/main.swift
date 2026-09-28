@@ -109,7 +109,7 @@ struct Search: AsyncParsableCommand {
         discussion: """
             Query syntax: words, "phrases", -exclude, ext:pdf,docx kind:image size:>10mb \
             modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:x content:y \
-            hidden:no cloud:no tag:red -tag:done taken:2024-07 duration:>10m author:smith \
+            hidden:no cloud:no tag:red -tag:done taken:2024-07 duration:>10m author:smith duplicates:yes \
             similar:~/Documents/lease.pdf
             """
     )
@@ -174,7 +174,8 @@ struct Search: AsyncParsableCommand {
                 print(try ResultRecord(result, snippet: result.snippet).json)
             } else {
                 let why = [result.matchedName ? "name" : nil, result.matchedContent ? "content" : nil,
-                           result.matchedLabel ? "picture" : nil, result.matchedMeaning ? "meaning" : nil]
+                           result.matchedLabel ? "picture" : nil, result.matchedMeaning ? "meaning" : nil,
+                           result.copies.map { "group \(result.duplicateGroup ?? 0) of \($0) copies" }]
                     .compactMap { $0 }.joined(separator: "+")
                 print("\(result.path)  [\(why)]")
                 if let snippet = result.snippet {

@@ -21,6 +21,10 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var author: String?
     /// What a photo shows, as recognized ("beach", "screenshot").
     public var labels: [String] = []
+    /// For `duplicates:yes`: which group of identical files this is in (1 = most space wasted),
+    /// and how many files the group has.
+    public var duplicateGroup: Int?
+    public var copies: Int?
     /// Finder tag names.
     public var tags: [String] = []
     /// Why it matched.
@@ -68,7 +72,7 @@ public final class SearchEngine: Sendable {
     public let database: IndexDatabase
     private let embedder: Embedder
     private let vectors = VectorCache()
-    private let home: String
+    let home: String
 
     public init(database: IndexDatabase, embedder: Embedder = Embedder(), home: String = NSHomeDirectory()) {
         self.database = database
@@ -114,6 +118,9 @@ public final class SearchEngine: Sendable {
 
     private func rankedResults(_ query: SearchQuery, limit: Int, semantic: Bool) async throws -> [SearchResult] {
         guard !query.isEmpty else { return [] }
+        if query.duplicatesOnly {
+            return try await duplicates(query, limit: limit, semantic: semantic)
+        }
         if let path = query.similarTo {
             return try await similar(to: path, query: query, limit: limit)
         }

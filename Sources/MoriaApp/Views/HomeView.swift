@@ -124,7 +124,7 @@ private struct CollectionCard: View {
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(collection.name).fontWeight(.medium)
-                    Text(count.map { $0 >= 1000 ? "1,000+ items" : "\($0.formatted()) items" } ?? "Counting…")
+                    Text(!collection.isCounted ? "Identical files" : count.map { $0 >= 1000 ? "1,000+ items" : "\($0.formatted()) items" } ?? "Counting…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()

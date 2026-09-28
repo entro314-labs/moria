@@ -163,7 +163,8 @@ public struct MCPServer: Sendable {
                 path:invoices, ext:pdf,docx, kind:document|pdf|image|audio|video|archive|text|code|folder|app, \
                 size:>10mb, size:1mb..5mb, modified:<7d, modified:2026-03..2026-05, created:2025, \
                 taken:2024-07 (photos), duration:>10m (audio, video), author:smith (PDFs, Office documents), \
-                in:~/Documents, -in:~/Library, tag:red (Finder tags), hidden:no, cloud:no, similar:<path> (documents close in meaning \
+                in:~/Documents, -in:~/Library, tag:red (Finder tags), hidden:no, cloud:no, duplicates:yes (identical files, in \
+                groups; add size:>1mb to skip small files), similar:<path> (documents close in meaning \
                 to a file). A query of only filters lists matching files, newest first.
                 """),
             "inputSchema": .object([
@@ -320,6 +321,9 @@ public struct ResultRecord: Encodable, Sendable {
     public var matchedMeaning: Bool
     /// The words describe what the photo shows.
     public var matchedLabel: Bool
+    /// For `duplicates:yes`: the group of identical files, and how many files it has.
+    public var duplicateGroup: Int?
+    public var copies: Int?
     public var score: Double
     /// The excerpt without highlight markers.
     public var snippet: String?
@@ -333,6 +337,8 @@ public struct ResultRecord: Encodable, Sendable {
         matchedContent = result.matchedContent
         matchedMeaning = result.matchedMeaning
         matchedLabel = result.matchedLabel
+        duplicateGroup = result.duplicateGroup
+        copies = result.copies
         score = result.score
         self.snippet = snippet?.filter { $0 != SearchResult.highlightStart && $0 != SearchResult.highlightEnd }
     }

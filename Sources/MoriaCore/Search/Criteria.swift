@@ -7,7 +7,7 @@ import Foundation
 /// different attributes; values within one row can list alternatives, e.g. `pdf, docx`).
 public struct Criterion: Identifiable, Equatable, Sendable {
     public enum Attribute: String, CaseIterable, Identifiable, Sendable {
-        case words, name, ext, contents, kind, tag, path, folder, size, modified, created, taken, duration, author, hidden, cloud, similar
+        case words, name, ext, contents, kind, tag, path, folder, size, modified, created, taken, duration, author, hidden, cloud, duplicates, similar
 
         public var id: String { rawValue }
         public var title: String {
@@ -29,6 +29,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .hidden: "Hidden Files"
             case .cloud: "Cloud-Only Files"
             case .similar: "Similar To"
+            case .duplicates: "Duplicates"
             }
         }
 
@@ -38,6 +39,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .name: [.contains, .beginsWith, .endsWith, .isExactly, .matchesRegex]
             case .ext, .kind, .folder, .tag: [.is, .isNot]
             case .similar: [.is]
+            case .duplicates: [.include]
             case .contents: [.contains, .containsPhrase]
             case .author: [.contains]
             case .duration: [.greaterThan, .lessThan, .between]
@@ -120,6 +122,8 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         switch (attribute, op) {
         case (.hidden, _), (.cloud, _):
             return "\(attribute == .hidden ? "hidden" : "cloud"):\(op == .include ? "yes" : "no")"
+        case (.duplicates, _):
+            return "duplicates:yes"
         default:
             break
         }
@@ -214,6 +218,8 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         case "in", "folder":
             let expanded = value.hasPrefix("~") ? home + value.dropFirst() : value
             return Criterion(attribute: .folder, op: negated ? .isNot : .is, value: expanded)
+        case "duplicates" where !negated, "duplicate" where !negated, "dupes" where !negated:
+            return Criterion(attribute: .duplicates)
         case "hidden", "cloud":
             let on = ["yes", "true", "1", "only"].contains(value.lowercased())
             return Criterion(attribute: key == "hidden" ? .hidden : .cloud, op: on ? .include : .exclude)

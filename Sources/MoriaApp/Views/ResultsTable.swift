@@ -590,6 +590,9 @@ struct MatchLabel: Hashable {
         if result.isCloudOnly {
             labels.append(MatchLabel(text: "Cloud", help: "Not downloaded; indexed by name only", colorName: "gray"))
         }
+        if let copies = result.copies {
+            labels.append(MatchLabel(text: "\(copies) copies", help: "Identical to the other files in this group", colorName: "gray"))
+        }
         if result.isOffline {
             labels.append(MatchLabel(text: "Offline", help: "On a drive that isn't connected", colorName: "gray"))
         }

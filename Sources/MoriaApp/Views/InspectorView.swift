@@ -262,6 +262,7 @@ private struct InfoPane: View {
                 if let duration = result.duration { row("Duration", Display.duration(duration)) }
                 if let author = result.author { row("Author", author) }
                 if !result.labels.isEmpty { row("Shows", result.labels.joined(separator: ", ")) }
+                if let copies = result.copies { row("Copies", "\(copies) identical files") }
                 row("Modified", Display.absoluteDate.string(from: result.modified))
                 row("Created", Display.absoluteDate.string(from: result.created))
                 if result.isCloudOnly { row("Storage", "In the cloud, not downloaded") }

@@ -690,7 +690,7 @@ final class SearchModel {
             recentFiles = (try? await engine.search(recent, limit: 24)) ?? []
 
             var counts: [SidebarItem: Int] = [:]
-            for collection in Collection.all {
+            for collection in Collection.all where collection.isCounted {
                 let query = QueryParser().parse(collection.query)
                 counts[.collection(collection.name)] = (try? await engine.search(query, limit: 1000).count) ?? 0
             }
@@ -826,7 +826,7 @@ final class SearchModel {
         ("created:", "date created"), ("in:", "folder"), ("name:", "name only"), ("content:", "contents only"),
         ("hidden:", "hidden files"), ("cloud:", "cloud-only files"), ("similar:", "documents like a file"),
         ("tag:", "Finder tag"), ("taken:", "date a photo was taken"), ("duration:", "length of audio or video"),
-        ("author:", "document author"),
+        ("author:", "document author"), ("duplicates:", "identical files"),
     ]
 
     private static func values(for key: String, roots: [String], tags: [String]) -> [(value: String, help: String)] {
@@ -849,6 +849,8 @@ final class SearchModel {
             return Array(Set(folders)).sorted().map { ($0, "") }
         case "hidden", "cloud":
             return [("no", "leave out"), ("yes", "only these")]
+        case "duplicates":
+            return [("yes", "only files with an identical copy")]
         default:
             return []
         }

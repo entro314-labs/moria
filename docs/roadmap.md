@@ -14,9 +14,6 @@ are never edited.
 
 ## Significant
 
-- **Duplicates.** Group files by size from the index, then hash only the candidates. Needs a
-  hash column (migration), must skip cloud-only files (`MaterializationGuard`), and a place in
-  the UI (a collection or a mode).
 - **Tests for the app layer.** Only `MoriaCore` has tests. `SearchModel` (search modes,
   hand-offs, selection, Trash) has none, and several recent fixes were in that logic.
 

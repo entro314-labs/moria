@@ -337,7 +337,7 @@ extension IndexDatabase {
                 INSERT INTO name_fts(name_fts) VALUES ('delete-all');
                 INSERT INTO content_fts(content_fts) VALUES ('delete-all');
                 INSERT INTO label_fts(label_fts) VALUES ('delete-all');
-                DELETE FROM doc_text; DELETE FROM chunk_vec;
+                DELETE FROM doc_text; DELETE FROM chunk_vec; DELETE FROM file_hash;
                 DELETE FROM file; DELETE FROM dir;
                 DELETE FROM meta WHERE key LIKE 'scan.%' OR key LIKE 'fsevents.%';
                 """)

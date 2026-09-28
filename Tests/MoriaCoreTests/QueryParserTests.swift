@@ -220,3 +220,16 @@ extension QueryParserTests {
         #expect(rebuilt.minDuration == 60 && rebuilt.maxDuration == 300 && rebuilt.authors == ["Maria P"] && rebuilt.taken != nil)
     }
 }
+
+extension QueryParserTests {
+    @Test func duplicatesToken() {
+        let query = parser.parse("duplicates:yes size:>1mb")
+        #expect(query.duplicatesOnly && !query.isEmpty)
+        #expect(parser.parse("duplicates:maybe").terms == ["duplicates:maybe"])
+        #expect(parser.parse(QueryFormatter(calendar: calendar, home: "/Users/test").string(from: query)) == query)
+        #expect(parser.chips(for: "duplicates:yes").map(\.label) == ["Duplicates only"])
+        let criteria = Criterion.criteria(from: "duplicates:yes", home: "/Users/test")
+        #expect(criteria.map(\.attribute) == [.duplicates])
+        #expect(Criterion.query(from: criteria) == "duplicates:yes")
+    }
+}

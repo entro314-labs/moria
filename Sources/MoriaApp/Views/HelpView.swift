@@ -138,6 +138,7 @@ struct SyntaxTable: View {
         ("in:~/Documents  -in:~/Library", "inside or outside a folder"),
         ("tag:red,\"Needs Review\"  -tag:done", "Finder tags (any of them), or leave some out"),
         ("hidden:no  cloud:no", "skip hidden files or cloud-only files"),
+        ("duplicates:yes  size:>1mb", "identical files, in groups (most space wasted first)"),
         ("similar:~/Documents/lease.pdf", "documents close in meaning to a file (Meaning on)"),
     ]
 
