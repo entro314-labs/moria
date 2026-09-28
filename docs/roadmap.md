@@ -9,8 +9,6 @@ are never edited.
 
 ## Polish
 
-- **Saved searches: Delete key and undo.** Deleting is permanent and only reachable from the
-  context menu.
 - **Match stepping in the menu bar.** ⌘G / ⇧⌘G exist only as buttons in the inspector, so the
   menu bar doesn't show them.
 

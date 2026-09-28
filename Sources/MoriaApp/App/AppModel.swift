@@ -86,9 +86,24 @@ final class AppModel {
         persistSavedSearches()
     }
 
-    func deleteSavedSearch(_ id: UUID) {
-        savedSearches.removeAll { $0.id == id }
+    /// Deletes a saved search; undo puts it back in its place.
+    func deleteSavedSearch(_ id: UUID, undoManager: UndoManager?) {
+        guard let index = savedSearches.firstIndex(where: { $0.id == id }) else { return }
+        let removed = savedSearches.remove(at: index)
         persistSavedSearches()
+        undoManager?.registerUndo(withTarget: self) { app in
+            MainActor.assumeIsolated { app.restoreSavedSearch(removed, at: index, undoManager: undoManager) }
+        }
+        undoManager?.setActionName("Delete Saved Search")
+    }
+
+    private func restoreSavedSearch(_ search: SearchModel.SavedSearch, at index: Int, undoManager: UndoManager?) {
+        savedSearches.insert(search, at: min(index, savedSearches.count))
+        persistSavedSearches()
+        undoManager?.registerUndo(withTarget: self) { app in
+            MainActor.assumeIsolated { app.deleteSavedSearch(search.id, undoManager: undoManager) }
+        }
+        undoManager?.setActionName("Delete Saved Search")
     }
 
     private func persistSavedSearches() {

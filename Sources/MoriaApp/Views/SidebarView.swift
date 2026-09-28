@@ -9,6 +9,7 @@ struct SidebarView: View {
     @State private var renaming: SearchModel.SavedSearch?
     @State private var newName = ""
     @State private var choosingFolder = false
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
@@ -44,7 +45,7 @@ struct SidebarView: View {
                                 Button("Rename…") { renaming = saved; newName = saved.name }
                                 Button("Duplicate") { model.app.duplicateSavedSearch(saved.id) }
                                 Divider()
-                                Button("Delete", role: .destructive) { model.app.deleteSavedSearch(saved.id) }
+                                Button("Delete", role: .destructive) { delete(saved.id) }
                             }
                     }
                     .onMove { model.app.moveSavedSearches(from: $0, to: $1) }
@@ -73,6 +74,10 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        // The Delete key (and Edit › Delete) removes the selected saved search; ⌘Z brings it back.
+        .onDeleteCommand {
+            if case let .saved(id) = model.sidebarSelection { delete(id) }
+        }
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             switch result {
             case let .success(url):
@@ -90,6 +95,11 @@ struct SidebarView: View {
             Button("Rename") { if let renaming { model.app.renameSavedSearch(renaming.id, to: newName) } }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private func delete(_ id: UUID) {
+        if model.sidebarSelection == .saved(id) { model.sidebarSelection = nil }
+        model.app.deleteSavedSearch(id, undoManager: undoManager)
     }
 
     private func row(_ title: String, _ symbol: String, count: Int?) -> some View {
