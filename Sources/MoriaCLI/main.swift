@@ -290,7 +290,8 @@ struct Config: AsyncParsableCommand {
         guard let equals = assignment.firstIndex(of: "=") else { throw ValidationError("Expected key=value, got \(assignment)") }
         let key = String(assignment[..<equals])
         let value = String(assignment[assignment.index(after: equals)...])
-        func list() -> [String] { value.split(separator: ",").map { ($0.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath } }
+        func names() -> [String] { value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+        func list() -> [String] { names().map { ($0 as NSString).expandingTildeInPath } }
         func bool() throws -> Bool {
             guard let flag = Bool(value.lowercased()) else { throw ValidationError("\(key) expects true or false") }
             return flag
@@ -302,9 +303,12 @@ struct Config: AsyncParsableCommand {
         switch key {
         case "roots": settings.roots = list()
         case "excludedPaths": settings.excludedPaths = list()
-        case "excludedNames": settings.excludedNames = value.split(separator: ",").map(String.init)
+        case "excludedNames": settings.excludedNames = names()
         case "includeHidden": settings.includeHidden = try bool()
         case "descendIntoPackages": settings.descendIntoPackages = try bool()
+        case "contentExcludedPaths": settings.contentExcludedPaths = list()
+        case "contentExcludedNames": settings.contentExcludedNames = names()
+        case "extractHiddenContent": settings.extractHiddenContent = try bool()
         case "maxContentKilobytes": settings.maxContentKilobytes = try int()
         case "maxFileMegabytes": settings.maxFileMegabytes = try int()
         case "ocrImages": settings.ocrImages = try bool()

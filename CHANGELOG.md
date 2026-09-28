@@ -35,3 +35,6 @@
 - A file that keeps changing while it waits to be read (an active log, or the index’s own files inside an indexed folder) is given up on after three tries instead of being read again forever; it is tried again when it next changes.
 - Updates through Sparkle: Moria › Check for Updates…, automatic checks (asked at the second launch; Settings › General), and releases published on GitHub as notarized disk images.
 - Stop Search (⌘., or Stop in the status bar and while searching) ends a running search, keeping the results it already found; typing a new search stops the old one at once, including slow filter-only, regex and duplicate searches that used to run to the end.
+- `moria config --set` covers every setting, including the names-only folders (`contentExcludedPaths`, `contentExcludedNames`) and `extractHiddenContent`; list values are trimmed.
+- Folders chosen with Choose Folder… (filter bar, sidebar, criteria builder) and files chosen for Similar To are matched by the path the filesystem reports, so a folder reached through a link (`~/Dropbox`, `/tmp`) finds its files like a dropped folder does.
+- The criteria builder's match count uses the window's mode and filters (or the saved search's when editing), as Search does.
