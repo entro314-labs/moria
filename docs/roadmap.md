@@ -21,9 +21,6 @@ are never edited.
 - **Duplicates.** Group files by size from the index, then hash only the candidates. Needs a
   hash column (migration), must skip cloud-only files (`MaterializationGuard`), and a place in
   the UI (a collection or a mode).
-- **Media and document metadata.** Date taken, camera and location for photos; duration for
-  audio and video; author for documents. New filters (`taken:`, `duration:`, …) and criteria.
-  Migration for the new columns.
 - **Tests for the app layer.** Only `MoriaCore` has tests. `SearchModel` (search modes,
   hand-offs, selection, Trash) has none, and several recent fixes were in that logic.
 

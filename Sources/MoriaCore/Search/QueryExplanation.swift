@@ -80,6 +80,18 @@ extension QueryParser {
         }
         if let modified = query.modified { return chip("Modified " + describe(modified), "calendar") }
         if let created = query.created { return chip("Created " + describe(created), "calendar.badge.plus") }
+        if let taken = query.taken { return chip("Taken " + describe(taken), "camera") }
+        if query.minDuration != nil || query.maxDuration != nil {
+            let format = { (seconds: Double) in Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated)) }
+            let label = switch (query.minDuration, query.maxDuration) {
+            case let (min?, max?): "\(format(min)) – \(format(max)) long"
+            case let (min?, nil): "Longer than \(format(min))"
+            case let (nil, max?): "Shorter than \(format(max))"
+            case (nil, nil): ""
+            }
+            return chip(label, "timer")
+        }
+        if let author = query.authors.first { return chip("By " + author, "person") }
         if let folder = query.folders.first { return chip("In " + (folder as NSString).lastPathComponent, "folder") }
         if let folder = query.excludedFolders.first {
             return chip("Not in " + (folder as NSString).lastPathComponent, "folder.badge.minus", exclusion: true)

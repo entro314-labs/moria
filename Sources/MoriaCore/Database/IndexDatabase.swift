@@ -22,6 +22,17 @@ public enum ContentState: Int, Sendable, Codable {
     case link = 7
 }
 
+/// Whether a file's media and document details (date taken, duration, author) have been read,
+/// stored in `file.mediaState`.
+public enum MediaState: Int, Sendable {
+    /// Waiting to be read.
+    case pending = 0
+    /// Read (the details may still be empty: many files have none).
+    case read = 1
+    /// Not a photo, audio, video, PDF or document, or not read in its location.
+    case none = 2
+}
+
 /// The on-disk index: file metadata, filename and content full-text tables, embeddings and settings.
 ///
 /// Uses a WAL `DatabasePool` so searches run concurrently with indexing, and the app and
@@ -165,6 +176,25 @@ public final class IndexDatabase: Sendable {
                 ALTER TABLE file ADD COLUMN tags TEXT;
                 CREATE INDEX file_tagged ON file(id) WHERE tags IS NOT NULL;
                 DELETE FROM meta WHERE key = 'fsevents.lastID';
+                """)
+        }
+        // Details read from photos, audio, video, PDFs and documents. Every existing row starts
+        // as "not applicable" (a constant default: no rewrite of millions of rows while the app
+        // launches); the controller then queues the relevant files once (`media.backfilled`).
+        // A file whose details are to be read again loses the old ones, as content does.
+        migrator.registerMigration("v5-media") { db in
+            try db.execute(sql: """
+                ALTER TABLE file ADD COLUMN mediaState INTEGER NOT NULL DEFAULT 2;
+                ALTER TABLE file ADD COLUMN taken REAL;
+                ALTER TABLE file ADD COLUMN duration REAL;
+                ALTER TABLE file ADD COLUMN author TEXT;
+                CREATE INDEX file_media_pending ON file(id) WHERE mediaState = 0;
+                CREATE INDEX file_taken ON file(taken) WHERE taken IS NOT NULL;
+                CREATE INDEX file_duration ON file(duration) WHERE duration IS NOT NULL;
+                CREATE TRIGGER file_media_invalidated AFTER UPDATE OF mediaState ON file
+                WHEN old.mediaState = 1 AND new.mediaState != 1 BEGIN
+                    UPDATE file SET taken = NULL, duration = NULL, author = NULL WHERE id = old.id;
+                END;
                 """)
         }
         return migrator

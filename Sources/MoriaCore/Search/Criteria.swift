@@ -7,7 +7,7 @@ import Foundation
 /// different attributes; values within one row can list alternatives, e.g. `pdf, docx`).
 public struct Criterion: Identifiable, Equatable, Sendable {
     public enum Attribute: String, CaseIterable, Identifiable, Sendable {
-        case words, name, ext, contents, kind, tag, path, folder, size, modified, created, hidden, cloud, similar
+        case words, name, ext, contents, kind, tag, path, folder, size, modified, created, taken, duration, author, hidden, cloud, similar
 
         public var id: String { rawValue }
         public var title: String {
@@ -23,6 +23,9 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .size: "Size"
             case .modified: "Date Modified"
             case .created: "Date Created"
+            case .taken: "Date Taken"
+            case .duration: "Duration"
+            case .author: "Author"
             case .hidden: "Hidden Files"
             case .cloud: "Cloud-Only Files"
             case .similar: "Similar To"
@@ -36,9 +39,11 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .ext, .kind, .folder, .tag: [.is, .isNot]
             case .similar: [.is]
             case .contents: [.contains, .containsPhrase]
+            case .author: [.contains]
+            case .duration: [.greaterThan, .lessThan, .between]
             case .path: [.contains]
             case .size: [.greaterThan, .lessThan, .between]
-            case .modified, .created: [.withinLast, .before, .after, .between, .on]
+            case .modified, .created, .taken: [.withinLast, .before, .after, .between, .on]
             case .hidden, .cloud: [.include, .exclude]
             }
         }
@@ -59,8 +64,8 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .matchesRegex: "matches regex"
             case .is: "is"
             case .isNot: "is not"
-            case .greaterThan: "is larger than"
-            case .lessThan: "is smaller than"
+            case .greaterThan: "is more than"
+            case .lessThan: "is less than"
             case .between: "is between"
             case .withinLast: "is within the last"
             case .before: "is before"
@@ -93,7 +98,8 @@ public struct Criterion: Identifiable, Equatable, Sendable {
     static func defaultUnit(for attribute: Attribute) -> String {
         switch attribute {
         case .size: "mb"
-        case .modified, .created: "d"
+        case .duration: "m"
+        case .modified, .created, .taken: "d"
         default: ""
         }
     }
@@ -104,7 +110,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
     }
 
     private var usesUnit: Bool {
-        attribute == .size || (op == .withinLast)
+        attribute == .size || attribute == .duration || (op == .withinLast)
     }
 
     /// The query token, or nil while the row is incomplete.
@@ -139,13 +145,19 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         case (.folder, .is): return "in:" + quoted(value)
         case (.folder, _): return "-in:" + quoted(value)
         case (.similar, _): return "similar:" + quoted(value)
+        case (.author, _): return "author:" + quoted(value)
+        case (.duration, .greaterThan): return "duration:>\(value)\(unit)"
+        case (.duration, .lessThan): return "duration:<\(value)\(unit)"
+        case (.duration, _):
+            let high = value2.trimmingCharacters(in: .whitespaces)
+            return high.isEmpty ? nil : "duration:\(value)\(unit)..\(high)\(unit)"
         case (.size, .greaterThan): return "size:>\(value)\(unit)"
         case (.size, .lessThan): return "size:<\(value)\(unit)"
         case (.size, _):
             let high = value2.trimmingCharacters(in: .whitespaces)
             return high.isEmpty ? nil : "size:\(value)\(unit)..\(high)\(unit)"
-        case (.modified, _), (.created, _):
-            let key = attribute == .modified ? "modified" : "created"
+        case (.modified, _), (.created, _), (.taken, _):
+            let key = attribute.rawValue
             switch op {
             case .withinLast: return "\(key):<\(value)\(unit)"
             case .before: return "\(key):<\(value)"
@@ -207,8 +219,13 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             return Criterion(attribute: key == "hidden" ? .hidden : .cloud, op: on ? .include : .exclude)
         case "size" where !negated:
             return sizeCriterion(value) ?? fallback
-        case "modified", "mod", "date", "created":
-            return dateCriterion(value, attribute: key == "created" ? .created : .modified) ?? fallback
+        case "modified", "mod", "date", "created", "taken":
+            let attribute: Attribute = key == "created" ? .created : key == "taken" ? .taken : .modified
+            return dateCriterion(value, attribute: attribute) ?? fallback
+        case "duration" where !negated, "length" where !negated:
+            return durationCriterion(value) ?? fallback
+        case "author" where !negated, "by" where !negated:
+            return Criterion(attribute: .author, value: value)
         default:
             return fallback
         }
@@ -232,6 +249,21 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         for (prefix, op) in [(">", Operator.greaterThan), ("<", .lessThan)] where value.hasPrefix(prefix) {
             if let (number, unit) = splitUnit(String(value.dropFirst()), units: units) {
                 return Criterion(attribute: .size, op: op, value: number, unit: unit)
+            }
+        }
+        return nil
+    }
+
+    private static func durationCriterion(_ value: String) -> Criterion? {
+        let units = ["h", "m", "s"]
+        if let range = value.range(of: ".."),
+           let low = splitUnit(String(value[..<range.lowerBound]), units: units),
+           let high = splitUnit(String(value[range.upperBound...]), units: units), low.1 == high.1 {
+            return Criterion(attribute: .duration, op: .between, value: low.0, value2: high.0, unit: low.1)
+        }
+        for (prefix, op) in [(">", Operator.greaterThan), ("<", .lessThan)] where value.hasPrefix(prefix) {
+            if let (number, unit) = splitUnit(String(value.dropFirst()), units: units) {
+                return Criterion(attribute: .duration, op: op, value: number, unit: unit)
             }
         }
         return nil

@@ -199,3 +199,24 @@ extension QueryParserTests {
         #expect(FinderTags.stored([]) == nil)
     }
 }
+
+extension QueryParserTests {
+    @Test func takenDurationAndAuthor() {
+        let query = parser.parse(#"beach taken:2024-07 duration:>10m author:"Maria P""#)
+        #expect(query.taken == DateInterval(start: date(2024, 7, 1), end: date(2024, 8, 1)))
+        #expect(query.minDuration == 600 && query.maxDuration == nil)
+        #expect(query.authors == ["Maria P"])
+        #expect(parser.parse("duration:1m..1h").minDuration == 60)
+        #expect(parser.parse("duration:1m..1h").maxDuration == 3600)
+        #expect(parser.parse("duration:<2:30").maxDuration == 150)
+        #expect(parser.parse("duration:long").terms == ["duration:long"])
+        let formatter = QueryFormatter(calendar: calendar, home: "/Users/test")
+        #expect(parser.parse(formatter.string(from: query)) == query)
+        #expect(parser.chips(for: "duration:>10m author:smith").map(\.label) == ["Longer than 10 min", "By smith"])
+        let criteria = Criterion.criteria(from: #"taken:<30d duration:1m..5m author:"Maria P""#, home: "/Users/test")
+        #expect(criteria.map(\.attribute) == [.taken, .duration, .author])
+        #expect(criteria.map(\.op) == [.withinLast, .between, .contains])
+        let rebuilt = parser.parse(Criterion.query(from: criteria))
+        #expect(rebuilt.minDuration == 60 && rebuilt.maxDuration == 300 && rebuilt.authors == ["Maria P"] && rebuilt.taken != nil)
+    }
+}

@@ -58,6 +58,8 @@ struct Index: AsyncParsableCommand {
                     print("\(elapsed)  extracting \(progress.extractedFiles) done, \(progress.remainingFiles) left")
                 case .recognizingText:
                     print("\(elapsed)  OCR        \(progress.extractedFiles) done, \(progress.remainingFiles) left")
+                case .readingDetails:
+                    if lastPhase != progress.phase { print("\(elapsed)  reading photo, audio and document details") }
                 case .embedding:
                     print("\(elapsed)  embedding  \(progress.embeddedFiles) files")
                 case .updating, .idle:
@@ -107,7 +109,8 @@ struct Search: AsyncParsableCommand {
         discussion: """
             Query syntax: words, "phrases", -exclude, ext:pdf,docx kind:image size:>10mb \
             modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:x content:y \
-            hidden:no cloud:no tag:red -tag:done similar:~/Documents/lease.pdf
+            hidden:no cloud:no tag:red -tag:done taken:2024-07 duration:>10m author:smith \
+            similar:~/Documents/lease.pdf
             """
     )
 

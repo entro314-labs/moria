@@ -39,8 +39,8 @@ struct MetadataWriter {
         try database.pool.write { db in
             let upsertFile = try db.cachedStatement(sql: """
                 INSERT INTO file (dirId, name, ext, isDir, size, mtime, btime, kind,
-                                  isHidden, isCloudOnly, contentState, seen, tags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  isHidden, isCloudOnly, contentState, seen, tags, mediaState)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(dirId, name) DO UPDATE SET
                     ext = excluded.ext, isDir = excluded.isDir, size = excluded.size,
                     mtime = excluded.mtime, btime = excluded.btime, kind = excluded.kind,
@@ -48,6 +48,11 @@ struct MetadataWriter {
                     seen = excluded.seen,
                     -- Tagging changes neither mtime nor size, so tags are always taken as read.
                     tags = excluded.tags,
+                    mediaState = CASE
+                        WHEN file.mtime != excluded.mtime OR file.size != excluded.size
+                             OR file.isCloudOnly != excluded.isCloudOnly
+                             OR (excluded.mediaState = 2) != (file.mediaState = 2)
+                        THEN excluded.mediaState ELSE file.mediaState END,
                     contentState = CASE
                         WHEN file.mtime != excluded.mtime OR file.size != excluded.size
                              OR file.isCloudOnly != excluded.isCloudOnly
@@ -62,7 +67,7 @@ struct MetadataWriter {
                 try upsertFile.execute(arguments: [
                     parentID, meta.name, meta.ext, meta.isDir, meta.size, meta.mtime, meta.btime,
                     meta.kind.rawValue, meta.isHidden, meta.isCloudOnly, initialState(meta).rawValue, generation,
-                    FinderTags.stored(meta.tags),
+                    FinderTags.stored(meta.tags), initialMediaState(meta).rawValue,
                 ])
             }
         }
@@ -77,6 +82,13 @@ struct MetadataWriter {
             """, arguments: [path, generation])!
         dirIDs[path] = id
         return id
+    }
+
+    /// Details are read for photos, audio, video, PDFs and documents where contents are read.
+    private func initialMediaState(_ meta: FileMeta) -> MediaState {
+        guard !meta.isDir, !meta.isSymlink, !meta.isCloudOnly, meta.contentEligible, meta.size > 0,
+              MediaReader.kinds.contains(meta.kind) else { return .none }
+        return .pending
     }
 
     private func initialState(_ meta: FileMeta) -> ContentState {
@@ -218,6 +230,57 @@ extension IndexDatabase {
                 }
             }
         }
+    }
+
+    // MARK: - Media details
+
+    /// Files whose details are waiting to be read, outside `offline` folders.
+    func pendingMedia(limit: Int, outside offline: Set<String> = []) throws -> [PendingFile] {
+        let outside = Self.outside(offline, alias: "d")
+        return try pool.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
+                FROM file f JOIN dir d ON d.id = f.dirId
+                WHERE f.mediaState = 0 AND \(outside.sql) ORDER BY f.id LIMIT ?
+                """, arguments: outside.arguments + [limit]).map { row in
+                PendingFile(id: row["id"], path: row["path"], ext: row["ext"],
+                            kind: FileKind(rawValue: row["kind"]) ?? .other, size: row["size"], mtime: row["mtime"])
+            }
+        }
+    }
+
+    /// Writes details read; a file that changed since (mtime) stays pending.
+    func storeMedia(_ results: [(id: Int64, mtime: Double, details: MediaDetails)]) throws {
+        try pool.write { db in
+            let update = try db.cachedStatement(sql: """
+                UPDATE file SET mediaState = 1, taken = ?, duration = ?, author = ?
+                WHERE id = ? AND mtime = ? AND mediaState = 0
+                """)
+            for (id, mtime, details) in results {
+                try update.execute(arguments: [details.taken?.timeIntervalSince1970, details.duration, details.author, id, mtime])
+            }
+        }
+    }
+
+    /// Queues the details of every eligible file that hasn't been read, for indexes that
+    /// predate them (their rows start as "not applicable"). Runs once per index.
+    func backfillMediaIfNeeded(home: String = NSHomeDirectory()) throws {
+        guard try meta("media.backfilled") == nil else { return }
+        try pool.write { db in
+            let kinds = MediaReader.kinds.map { "'\($0.rawValue)'" }.sorted().joined(separator: ",")
+            // Same eligibility as `initialMediaState`; contentState 4, 5 and 7 are cloud-only,
+            // names-only and links.
+            try db.execute(sql: """
+                UPDATE file SET mediaState = 0
+                WHERE kind IN (\(kinds)) AND isDir = 0 AND isCloudOnly = 0 AND size > 0
+                  AND contentState NOT IN (4, 5, 7) AND mediaState = 2
+                """)
+            try db.execute(sql: "INSERT OR REPLACE INTO meta(key, value) VALUES ('media.backfilled', '1')")
+        }
+    }
+
+    func pendingMediaCount() throws -> Int {
+        try pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE mediaState = 0") ?? 0 }
     }
 
     /// Queues eligible files to be read again after extraction settings changed; `kinds` limits

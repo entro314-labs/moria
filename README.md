@@ -28,6 +28,7 @@ name:/^IMG_\d{4}$/  path:invoices      name regex, path contains
 ext:pdf,docx  kind:image  -kind:folder file types
 size:>10mb  size:1mb..5mb              size
 modified:<7d  modified:2026-03..2026-05  created:2025
+taken:2024-07  duration:>10m  author:smith   photos, recordings, documents
 in:~/Documents  -in:~/Library          folders
 tag:red,"Needs Review"  -tag:done      Finder tags
 hidden:no  cloud:no

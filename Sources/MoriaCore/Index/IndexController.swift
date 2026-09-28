@@ -4,7 +4,7 @@ import Foundation
 /// Snapshot of indexing activity, published to the UI and CLI.
 public struct IndexProgress: Sendable, Equatable {
     public enum Phase: String, Sendable {
-        case idle, scanning, updating, extracting, recognizingText, embedding
+        case idle, scanning, updating, extracting, recognizingText, readingDetails, embedding
     }
 
     public var phase: Phase = .idle
@@ -135,6 +135,8 @@ public actor IndexController {
             try await fullScan()
         }
         while try await extractBatch() {}
+        try database.backfillMediaIfNeeded()
+        while try await mediaBatch() {}
         if settings.semanticSearchEnabled {
             while try await embedBatch() {}
         }
@@ -224,6 +226,7 @@ public actor IndexController {
     private func drainWork() async {
         do {
             try reloadSettings()
+            try database.backfillMediaIfNeeded()
         } catch {
             state.lastError = String(describing: error)
         }
@@ -241,6 +244,8 @@ public actor IndexController {
                 } else if !queuedChanges.isEmpty {
                     try applyQueuedChanges()
                 } else if try await extractBatch() {
+                    continue
+                } else if try await mediaBatch() {
                     continue
                 } else if settings.semanticSearchEnabled, try await embedBatch() {
                     continue
@@ -522,6 +527,36 @@ public actor IndexController {
         } catch {
             return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: .failed, text: nil, storeText: false))
         }
+    }
+
+    // MARK: - Media details
+
+    /// Reads the details (date taken, duration, author) of one batch of files. Returns false
+    /// when nothing is pending.
+    private func mediaBatch() async throws -> Bool {
+        let batch = try database.pendingMedia(limit: 64, outside: try database.offlineMountPoints())
+        guard !batch.isEmpty else { return false }
+        publish(phase: .readingDetails)
+        let width = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
+        let results = try await withThrowingTaskGroup(of: (id: Int64, mtime: Double, details: MediaDetails).self) { group in
+            var iterator = batch.makeIterator()
+            func addNext() {
+                guard let file = iterator.next() else { return }
+                group.addTask {
+                    try Task.checkCancellation()
+                    return (file.id, file.mtime, await MediaReader.read(path: file.path, ext: file.ext, kind: file.kind))
+                }
+            }
+            for _ in 0..<width { addNext() }
+            var results: [(id: Int64, mtime: Double, details: MediaDetails)] = []
+            while let result = try await group.next() {
+                results.append(result)
+                addNext()
+            }
+            return results
+        }
+        try database.storeMedia(results)
+        return true
     }
 
     // MARK: - Embeddings

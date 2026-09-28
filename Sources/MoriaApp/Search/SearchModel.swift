@@ -31,6 +31,9 @@ enum ResultSort: String, CaseIterable, Identifiable {
     case path = "Where"
     case ext = "Extension"
     case tags = "Tags"
+    case taken = "Date Taken"
+    case duration = "Duration"
+    case author = "Author"
 
     var id: String { rawValue }
 
@@ -38,8 +41,8 @@ enum ResultSort: String, CaseIterable, Identifiable {
     /// newest first.
     var defaultAscending: Bool {
         switch self {
-        case .name, .kind, .path, .ext, .tags: true
-        case .relevance, .size, .modified, .created: false
+        case .name, .kind, .path, .ext, .tags, .author: true
+        case .relevance, .size, .modified, .created, .taken, .duration: false
         }
     }
 }
@@ -519,6 +522,10 @@ final class SearchModel {
             case .ext: x.ext < y.ext
             // Untagged files last.
             case .tags: (x.tags.first ?? "\u{10FFFF}").localizedStandardCompare(y.tags.first ?? "\u{10FFFF}") == .orderedAscending
+            // Files without the detail sort as the oldest, shortest or last.
+            case .taken: (x.taken ?? .distantPast) < (y.taken ?? .distantPast)
+            case .duration: (x.duration ?? -1) < (y.duration ?? -1)
+            case .author: (x.author ?? "\u{10FFFF}").localizedStandardCompare(y.author ?? "\u{10FFFF}") == .orderedAscending
             case .relevance: x.score < y.score
             }
             return ascending ? ordered : !ordered
@@ -817,7 +824,8 @@ final class SearchModel {
         ("kind:", "file type"), ("ext:", "extension"), ("size:", "file size"), ("modified:", "date modified"),
         ("created:", "date created"), ("in:", "folder"), ("name:", "name only"), ("content:", "contents only"),
         ("hidden:", "hidden files"), ("cloud:", "cloud-only files"), ("similar:", "documents like a file"),
-        ("tag:", "Finder tag"),
+        ("tag:", "Finder tag"), ("taken:", "date a photo was taken"), ("duration:", "length of audio or video"),
+        ("author:", "document author"),
     ]
 
     private static func values(for key: String, roots: [String], tags: [String]) -> [(value: String, help: String)] {
@@ -830,7 +838,9 @@ final class SearchModel {
             return ["pdf", "docx", "xlsx", "pptx", "pages", "md", "txt", "csv", "json", "png", "jpg", "heic", "mov", "zip", "swift", "py", "ts"].map { ($0, "") }
         case "size":
             return [(">1mb", "over 1 MB"), (">10mb", "over 10 MB"), (">100mb", "over 100 MB"), (">1gb", "over 1 GB"), ("<100kb", "under 100 KB")]
-        case "modified", "created", "date", "mod":
+        case "duration", "length":
+            return [(">1m", "over a minute"), (">10m", "over 10 minutes"), (">1h", "over an hour"), ("<30s", "under 30 seconds")]
+        case "modified", "created", "date", "mod", "taken":
             return [("today", ""), ("yesterday", ""), ("<7d", "past week"), ("<30d", "past month"), ("<1y", "past year"), (">1y", "older than a year"), ("thisyear", "")]
         case "in", "path", "folder":
             let home = NSHomeDirectory()

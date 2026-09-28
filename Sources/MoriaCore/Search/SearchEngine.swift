@@ -15,6 +15,10 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var isCloudOnly: Bool
     /// On a drive or network volume that isn't connected: indexed, but can't be opened now.
     public var isOffline = false
+    /// When a photo was taken; length of audio or video in seconds; a document's author.
+    public var taken: Date?
+    public var duration: Double?
+    public var author: String?
     /// Finder tag names.
     public var tags: [String] = []
     /// Why it matched.
@@ -389,7 +393,7 @@ public final class SearchEngine: Sendable {
 
     // MARK: - SQL helpers
 
-    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly, f.tags"
+    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly, f.tags, f.taken, f.duration, f.author"
 
     static func result(from row: Row, name: Bool = false, content: Bool = false) -> SearchResult {
         // Snippets are built on demand by `snippet(for:query:)`.
@@ -397,7 +401,9 @@ public final class SearchEngine: Sendable {
             id: row["id"], path: row["path"], name: row["name"], ext: row["ext"],
             kind: FileKind(rawValue: row["kind"]) ?? .other, isDirectory: row["isDir"], size: row["size"],
             modified: Date(timeIntervalSince1970: row["mtime"]), created: Date(timeIntervalSince1970: row["btime"]),
-            isCloudOnly: row["isCloudOnly"], tags: FinderTags.names(fromStored: row["tags"]),
+            isCloudOnly: row["isCloudOnly"],
+            taken: (row["taken"] as Double?).map { Date(timeIntervalSince1970: $0) }, duration: row["duration"], author: row["author"],
+            tags: FinderTags.names(fromStored: row["tags"]),
             matchedName: name, matchedContent: content, matchedMeaning: false, meaningChunk: nil,
             snippet: nil, score: 0
         )
@@ -508,6 +514,14 @@ struct FilterSQL {
         if !query.tags.isEmpty {
             let clauses = query.tags.map { _ in "moria_fold(f.tags) LIKE ? ESCAPE '\\'" }.joined(separator: " OR ")
             add("(f.tags IS NOT NULL AND (\(clauses)))", values: query.tags.sorted().map(Self.tagPattern))
+        }
+        if let taken = query.taken {
+            add("f.taken >= ? AND f.taken < ?", values: [taken.start.timeIntervalSince1970, taken.end.timeIntervalSince1970])
+        }
+        if let min = query.minDuration { add("f.duration >= ?", min) }
+        if let max = query.maxDuration { add("f.duration <= ?", max) }
+        for author in query.authors {
+            add("f.author IS NOT NULL AND moria_fold(f.author) LIKE ? ESCAPE '\\'", "%" + SearchEngine.escapeLike(author.searchFolded) + "%")
         }
         for tag in query.excludedTags.sorted() {
             add("(f.tags IS NULL OR moria_fold(f.tags) NOT LIKE ? ESCAPE '\\')", Self.tagPattern(tag))

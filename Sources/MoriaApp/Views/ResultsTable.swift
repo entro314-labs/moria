@@ -64,7 +64,7 @@ struct ResultsTable: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         enum Column: String, CaseIterable {
-            case name, location, kind, ext, tags, size, modified, created
+            case name, location, kind, ext, tags, size, modified, created, taken, duration, author
 
             var identifier: NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier(rawValue) }
             var title: String {
@@ -77,6 +77,9 @@ struct ResultsTable: NSViewRepresentable {
                 case .size: "Size"
                 case .modified: "Modified"
                 case .created: "Created"
+                case .taken: "Date Taken"
+                case .duration: "Duration"
+                case .author: "Author"
                 }
             }
             var width: CGFloat {
@@ -87,10 +90,12 @@ struct ResultsTable: NSViewRepresentable {
                 case .ext: 70
                 case .tags: 110
                 case .size: 72
-                case .modified, .created: 120
+                case .modified, .created, .taken: 120
+                case .duration: 72
+                case .author: 130
                 }
             }
-            var visibleByDefault: Bool { self != .location && self != .ext && self != .created && self != .tags }
+            var visibleByDefault: Bool { [.name, .kind, .size, .modified].contains(self) }
             var minWidth: CGFloat { self == .name ? 220 : 60 }
             var sort: ResultSort {
                 switch self {
@@ -102,6 +107,9 @@ struct ResultsTable: NSViewRepresentable {
                 case .modified: .modified
                 case .location: .path
                 case .created: .created
+                case .taken: .taken
+                case .duration: .duration
+                case .author: .author
                 }
             }
         }
@@ -237,6 +245,12 @@ struct ResultsTable: NSViewRepresentable {
                 return textCell(tableView, item.result.ext.isEmpty ? "—" : item.result.ext)
             case .tags:
                 return textCell(tableView, item.result.tags.joined(separator: ", "))
+            case .taken:
+                return textCell(tableView, item.result.taken.map(Display.date) ?? "")
+            case .duration:
+                return textCell(tableView, item.result.duration.map(Display.duration) ?? "", alignment: .right)
+            case .author:
+                return textCell(tableView, item.result.author ?? "")
             }
         }
 

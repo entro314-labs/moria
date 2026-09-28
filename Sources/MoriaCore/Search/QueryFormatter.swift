@@ -34,6 +34,14 @@ public struct QueryFormatter: Sendable {
         }
         if let modified = query.modified { parts.append("modified:" + dates(modified)) }
         if let created = query.created { parts.append("created:" + dates(created)) }
+        if let taken = query.taken { parts.append("taken:" + dates(taken)) }
+        switch (query.minDuration, query.maxDuration) {
+        case let (min?, max?): parts.append("duration:\(seconds(min))..\(seconds(max))")
+        case let (min?, nil): parts.append("duration:>\(seconds(min))")
+        case let (nil, max?): parts.append("duration:<\(seconds(max))")
+        case (nil, nil): break
+        }
+        parts += query.authors.map { "author:" + quotedIfNeeded($0) }
         parts += query.folders.map { "in:" + quotedIfNeeded(abbreviate($0)) }
         parts += query.excludedFolders.map { "-in:" + quotedIfNeeded(abbreviate($0)) }
         if let hidden = query.hidden { parts.append("hidden:" + (hidden ? "yes" : "no")) }
@@ -56,6 +64,14 @@ public struct QueryFormatter: Sendable {
             return (amount == amount.rounded() ? String(Int(amount)) : String(format: "%.1f", amount)) + unit
         }
         return String(value)
+    }
+
+    /// Whole minutes or hours when exact, else seconds: `10m`, `1h`, `95s`.
+    private func seconds(_ value: Double) -> String {
+        let whole = value.rounded()
+        if whole == value, whole.truncatingRemainder(dividingBy: 3600) == 0, whole > 0 { return "\(Int(whole / 3600))h" }
+        if whole == value, whole.truncatingRemainder(dividingBy: 60) == 0, whole > 0 { return "\(Int(whole / 60))m" }
+        return whole == value ? "\(Int(whole))s" : String(format: "%.1fs", value)
     }
 
     /// `YYYY-MM-DD..YYYY-MM-DD` with an inclusive end day; open ends use `<`/`>`.

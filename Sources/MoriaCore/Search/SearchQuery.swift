@@ -29,6 +29,13 @@ public struct SearchQuery: Sendable, Equatable {
     public var maxSize: Int64?
     public var modified: DateInterval?
     public var created: DateInterval?
+    /// `taken:`: when a photo was taken.
+    public var taken: DateInterval?
+    /// `duration:` of audio or video, in seconds.
+    public var minDuration: Double?
+    public var maxDuration: Double?
+    /// `author:`: text a PDF's or document's author must contain.
+    public var authors: [String] = []
     /// `in:` folders; a result must be inside one of them.
     public var folders: [String] = []
     /// `-in:` folders; results inside them are dropped.
@@ -53,7 +60,8 @@ public struct SearchQuery: Sendable, Equatable {
         !extensions.isEmpty || !excludedExtensions.isEmpty || !namePatterns.isEmpty || !pathContains.isEmpty
             || !kinds.isEmpty || !excludedKinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
             || created != nil || !folders.isEmpty || !excludedFolders.isEmpty || hidden != nil || cloudOnly != nil
-            || !tags.isEmpty || !excludedTags.isEmpty
+            || !tags.isEmpty || !excludedTags.isEmpty || taken != nil || minDuration != nil || maxDuration != nil
+            || !authors.isEmpty
     }
 
     public var isEmpty: Bool {
@@ -118,7 +126,7 @@ public enum NamePattern: Sendable, Equatable, Hashable {
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
 ///     content:lease hidden:no cloud:no -in:~/Library -kind:image -ext:tmp path:invoices
 ///     name:report* name:*.draft name:=README name:/^IMG_\d{4}$/ similar:~/Documents/lease.pdf
-///     tag:red,"Needs Review" -tag:done
+///     tag:red,"Needs Review" -tag:done taken:2024-07 duration:>10m author:smith
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -194,6 +202,18 @@ public struct QueryParser: Sendable {
         case "created":
             guard let interval = parseDate(value) else { return false }
             query.created = interval
+            return true
+        case "taken":
+            guard let interval = parseDate(value) else { return false }
+            query.taken = interval
+            return true
+        case "duration", "length":
+            guard let (min, max) = parseDuration(value) else { return false }
+            if let min { query.minDuration = min }
+            if let max { query.maxDuration = max }
+            return true
+        case "author", "by":
+            query.authors.append(value)
             return true
         case "in", "folder":
             query.folders.append(expand(value))
@@ -292,6 +312,33 @@ public struct QueryParser: Sendable {
             // A bare size means "about this size": ±10%.
             return (bytes * 9 / 10, bytes * 11 / 10)
         }
+    }
+
+    /// `>10m`, `<30s`, `1m..5m`, `1h`, `90s`, `2:30` (minutes:seconds). A bare length means
+    /// about that long (±10%), as for sizes.
+    func parseDuration(_ value: String) -> (Double?, Double?)? {
+        if let range = value.range(of: "..") {
+            let low = Self.seconds(String(value[..<range.lowerBound]))
+            let high = Self.seconds(String(value[range.upperBound...]))
+            guard low != nil || high != nil else { return nil }
+            return (low, high)
+        }
+        for op in [">=", "<=", ">", "<"] where value.hasPrefix(op) {
+            guard let seconds = Self.seconds(String(value.dropFirst(op.count))) else { return nil }
+            return op.hasPrefix(">") ? (seconds, nil) : (nil, seconds)
+        }
+        guard let seconds = Self.seconds(value) else { return nil }
+        return (seconds * 0.9, seconds * 1.1)
+    }
+
+    static func seconds(_ text: String) -> Double? {
+        let lower = text.lowercased().trimmingCharacters(in: .whitespaces)
+        let parts = lower.split(separator: ":")
+        if parts.count == 2, let minutes = Double(parts[0]), let seconds = Double(parts[1]) { return minutes * 60 + seconds }
+        for (suffix, multiplier) in [("hr", 3600.0), ("h", 3600), ("min", 60), ("m", 60), ("sec", 1), ("s", 1)] where lower.hasSuffix(suffix) {
+            return Double(lower.dropLast(suffix.count)).map { $0 * multiplier }
+        }
+        return Double(lower)
     }
 
     static func bytes(_ text: String) -> Int64? {

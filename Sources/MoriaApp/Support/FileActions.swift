@@ -102,6 +102,11 @@ enum Display {
         date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)).capitalizedFirst
     }
 
+    /// "1:05:12", "3:07", "0:42"
+    static func duration(_ seconds: Double) -> String {
+        Duration.seconds(seconds.rounded()).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
+    }
+
     static let absoluteDate: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium

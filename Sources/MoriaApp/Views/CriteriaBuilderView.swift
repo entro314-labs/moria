@@ -225,7 +225,22 @@ private struct CriterionRow: View {
                 .labelsHidden()
                 .fixedSize()
             }
-        case .modified, .created:
+        case .duration:
+            HStack {
+                TextField("Length", text: $criterion.value).frame(width: 70)
+                if criterion.op == .between {
+                    Text("and")
+                    TextField("Length", text: $criterion.value2).frame(width: 70)
+                }
+                Picker("Unit", selection: $criterion.unit) {
+                    Text("seconds").tag("s")
+                    Text("minutes").tag("m")
+                    Text("hours").tag("h")
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        case .modified, .created, .taken:
             switch criterion.op {
             case .withinLast:
                 HStack {

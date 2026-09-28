@@ -258,6 +258,9 @@ private struct InfoPane: View {
                 if !result.isDirectory { row("Size", ByteCountFormatter.string(fromByteCount: result.size, countStyle: .file)) }
                 ForEach(facts, id: \.0) { row($0.0, $0.1) }
                 if !result.tags.isEmpty { row("Tags", result.tags.joined(separator: ", ")) }
+                if let taken = result.taken { row("Taken", Display.absoluteDate.string(from: taken)) }
+                if let duration = result.duration { row("Duration", Display.duration(duration)) }
+                if let author = result.author { row("Author", author) }
                 row("Modified", Display.absoluteDate.string(from: result.modified))
                 row("Created", Display.absoluteDate.string(from: result.created))
                 if result.isCloudOnly { row("Storage", "In the cloud, not downloaded") }
