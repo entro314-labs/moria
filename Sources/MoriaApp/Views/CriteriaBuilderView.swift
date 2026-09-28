@@ -197,7 +197,7 @@ private struct CriterionRow: View {
                     let panel = NSOpenPanel()
                     panel.canChooseDirectories = true
                     panel.canChooseFiles = false
-                    if panel.runModal() == .OK, let url = panel.url { criterion.value = url.path }
+                    if panel.runModal() == .OK, let url = panel.url { criterion.value = Volumes.canonicalPath(url.path) ?? url.path }
                 }
             }
         case .similar:
@@ -207,7 +207,7 @@ private struct CriterionRow: View {
                     let panel = NSOpenPanel()
                     panel.canChooseFiles = true
                     panel.canChooseDirectories = false
-                    if panel.runModal() == .OK, let url = panel.url { criterion.value = url.path }
+                    if panel.runModal() == .OK, let url = panel.url { criterion.value = Volumes.canonicalPath(url.path) ?? url.path }
                 }
             }
         case .size:

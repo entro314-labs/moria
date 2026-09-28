@@ -14,7 +14,17 @@ struct VolumeRecord: Codable, Sendable, Equatable {
 /// entries stay in the index (marked offline in results) instead of being deleted, and come
 /// back up to date when the volume returns. A location whose volume is mounted but which no
 /// longer exists is simply gone.
-enum Volumes {
+public enum Volumes {
+    /// `path` as the filesystem reports it, with symbolic links resolved (`/private/tmp`, not
+    /// `/tmp`; the folder a `~/Dropbox` link points to). FSEvents reports paths this way and
+    /// the index stores them, so folders chosen or dropped by the user are canonicalized
+    /// before they are matched against it. Nil when `path` doesn't exist.
+    public static func canonicalPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     /// The mount point of the volume holding `path`, or nil when `path` doesn't exist.
     static func mountPoint(of path: String) -> String? {
         var fs = statfs()

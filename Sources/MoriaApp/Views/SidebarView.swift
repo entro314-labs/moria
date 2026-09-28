@@ -82,8 +82,9 @@ struct SidebarView: View {
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             switch result {
             case let .success(url):
-                model.app.addCustomLocation(url.path)
-                model.sidebarSelection = .location(url.path)
+                let path = Volumes.canonicalPath(url.path) ?? url.path
+                model.app.addCustomLocation(path)
+                model.sidebarSelection = .location(path)
             case let .failure(error):
                 model.app.lastError = "The folder couldn't be added: \(error.localizedDescription)"
             }

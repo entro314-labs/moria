@@ -247,11 +247,8 @@ final class SearchModel {
             var isDirectory: ObjCBool = false
             return url.isFileURL && FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
         }
-        guard let folder else { return false }
-        // The index keeps canonical paths (/private/tmp, not /tmp), as the watcher reports them.
-        guard let canonical = realpath(folder.path, nil) else { return false }
-        defer { free(canonical) }
-        filters.folder = String(cString: canonical)
+        guard let folder, let canonical = Volumes.canonicalPath(folder.path) else { return false }
+        filters.folder = canonical
         return true
     }
 

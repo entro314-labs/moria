@@ -161,11 +161,7 @@ public actor IndexController {
         var new = new
         // FSEvents reports canonical paths (/private/tmp/..., not /tmp/...). NSString and URL
         // symlink resolution strip "/private", so events under such roots would be dropped.
-        new.roots = new.roots.map { root in
-            guard let resolved = realpath(root, nil) else { return root }
-            defer { free(resolved) }
-            return String(cString: resolved)
-        }
+        new.roots = new.roots.map { Volumes.canonicalPath($0) ?? $0 }
         let old = settings
         try database.saveSettings(new)
         try adopt(new)

@@ -405,6 +405,16 @@ struct IndexTests {
         #expect(try await cache.index(for: database, now: start.addingTimeInterval(61)).isEmpty)
     }
 
+    /// Chosen and dropped folders are matched against the index by the path the filesystem
+    /// reports, as roots are.
+    @Test func canonicalPathsResolveLinks() throws {
+        let temporary = FileManager.default.temporaryDirectory.path
+        let canonical = try #require(Volumes.canonicalPath(temporary))
+        #expect(canonical.hasPrefix("/private/"))
+        #expect(Volumes.canonicalPath(canonical) == canonical)
+        #expect(Volumes.canonicalPath(root.path + "/missing") == nil)
+    }
+
     @Test func vectorIndexRanksByBestChunk() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

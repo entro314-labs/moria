@@ -166,7 +166,7 @@ struct FilterOptions: View {
                 panel.canChooseDirectories = true
                 panel.canChooseFiles = false
                 panel.prompt = "Search Here"
-                if panel.runModal() == .OK, let url = panel.url { filters.folder = url.path }
+                if panel.runModal() == .OK, let url = panel.url { filters.folder = Volumes.canonicalPath(url.path) ?? url.path }
             }
         }
         if only == .location { items } else { Menu("Location") { items } }
