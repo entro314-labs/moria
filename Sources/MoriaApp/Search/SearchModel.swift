@@ -173,6 +173,8 @@ final class SearchModel {
         didSet { if selection.isEmpty { showActions = false } }
     }
     private(set) var isSearching = false
+    /// The last search was stopped before it finished.
+    private(set) var isStopped = false
     private(set) var elapsed: Duration?
     private(set) var message: String?
     /// Shown after the result count, e.g. when Ask fell back to searching the words.
@@ -209,6 +211,11 @@ final class SearchModel {
 
     private var activeQuery = SearchQuery()
     private var searchTask: Task<Void, Never>?
+    /// The rows shown were found by the running search (regex results arrive as they are
+    /// found), not left from the previous one.
+    private var itemsAreFromRunningSearch = false
+    /// Excerpts being loaded for visible rows; cancelled with the search they belong to.
+    private var detailTasks: [Int64: Task<Void, Never>] = [:]
     private var pendingDetails: Set<Int64> = []
 
     init(app: AppModel, limit: Int = 1000) {
@@ -355,7 +362,7 @@ final class SearchModel {
     }
 
     func search(debounce: Bool = true) {
-        searchTask?.cancel()
+        cancelWork()
         notice = nil
         let text = text.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty || filters.isActive else {
@@ -366,6 +373,8 @@ final class SearchModel {
             isSearching = false
             return
         }
+        // Searching from the keystroke on, so Stop is there during the pause before it starts.
+        isSearching = true
         let scope = scope
         searchTask = Task {
             if debounce { try? await Task.sleep(for: .milliseconds(scope == .regex ? 350 : 110)) }
@@ -376,6 +385,33 @@ final class SearchModel {
                 await run(query(for: text, scope: scope))
             }
         }
+    }
+
+    /// Stops the running search (Stop Search, ⌘.). Results it already found stay; rows left
+    /// from the previous search go, since they don't answer the current one.
+    func stop() {
+        guard isSearching else { return }
+        cancelWork()
+        isSearching = false
+        if !itemsAreFromRunningSearch {
+            items = []
+            selection = []
+        }
+        isStopped = true
+        notice = "Stopped"
+        message = nil
+    }
+
+    /// Cancels the search task and the excerpt loads. Cancelling interrupts their database reads
+    /// and ripgrep, so the work ends within milliseconds rather than running on.
+    private func cancelWork() {
+        itemsAreFromRunningSearch = false
+        isStopped = false
+        searchTask?.cancel()
+        searchTask = nil
+        for task in detailTasks.values { task.cancel() }
+        detailTasks = [:]
+        pendingDetails = []
     }
 
     private func query(for text: String, scope: SearchScope) -> SearchQuery {
@@ -419,6 +455,7 @@ final class SearchModel {
         details = [:]
         pendingDetails = []
         items = []
+        itemsAreFromRunningSearch = true
         activeQuery = SearchQuery()
         let clock = ContinuousClock()
         let start = clock.now
@@ -463,11 +500,11 @@ final class SearchModel {
     }
 
     private func ask() {
-        searchTask?.cancel()
+        cancelWork()
         notice = nil
         let request = text
+        isSearching = true
         searchTask = Task {
-            isSearching = true
             message = "Interpreting…"
             do {
                 let interpretation = try await NaturalLanguageQuery().interpret(request)
@@ -542,9 +579,11 @@ final class SearchModel {
         let query = activeQuery
         let engine = app.engine
         let result = item.result
-        Task {
+        detailTasks[id] = Task {
             let loaded = try? await engine.details(for: result, query: query)
+            guard !Task.isCancelled else { return }
             pendingDetails.remove(id)
+            detailTasks[id] = nil
             if let loaded {
                 details[id] = loaded
                 detailsRevision += 1
@@ -860,6 +899,7 @@ final class SearchModel {
 
     var summary: String {
         if isSearching, items.isEmpty { return "Searching…" }
+        if isStopped, items.isEmpty { return "Stopped" }
         guard !items.isEmpty else { return message ?? "" }
         let count = items.count >= limit ? "\(limit.formatted())+" : items.count.formatted()
         var text = "\(count) result\(items.count == 1 ? "" : "s")"

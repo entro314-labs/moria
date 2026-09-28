@@ -64,7 +64,8 @@ struct MainView: View {
         .focusedSceneValue(\.inspectorVisible, $showInspector)
         .focusedSceneValue(\.exportResults, $exporting)
         .focusedSceneValue(\.searchFieldFocused, searchFocused)
-        .fileExporter(isPresented: $exporting, document: CSVDocument(text: model.exportCSV()),
+        // Built only while exporting: this runs on every redraw, and the CSV covers every result.
+        .fileExporter(isPresented: $exporting, document: exporting ? CSVDocument(text: model.exportCSV()) : nil,
                       contentType: .commaSeparatedText, defaultFilename: "Moria Results") { result in
             if case let .failure(error) = result { app.lastError = "Export failed: \(error.localizedDescription)" }
         }
@@ -184,8 +185,20 @@ private struct ResultsArea: View {
         } else if model.text.isEmpty, !model.filters.isActive {
             HomeView(model: model)
         } else if model.isSearching {
-            ProgressView("Searching…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 12) {
+                ProgressView("Searching…")
+                Button("Stop", action: model.stop)
+                    .help("Stop this search (⌘.)")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.isStopped {
+            ContentUnavailableView {
+                Label("Search Stopped", systemImage: "stop.circle")
+            } description: {
+                Text("Change the search, or search again.")
+            } actions: {
+                Button("Search Again") { model.search(debounce: false) }
+            }
         } else if let message = model.message, message != "No matches" {
             ContentUnavailableView("Search Problem", systemImage: "exclamationmark.magnifyingglass", description: Text(message))
         } else {
@@ -206,6 +219,12 @@ private struct StatusBar: View {
         HStack(spacing: 10) {
             Text(model.summary)
                 .lineLimit(1)
+            if model.isSearching {
+                ProgressView().controlSize(.mini)
+                Button("Stop", action: model.stop)
+                    .buttonStyle(.borderless)
+                    .help("Stop this search (⌘.)")
+            }
             Spacer(minLength: 8)
             if !app.hasFullDiskAccess {
                 Button("Limited Access", systemImage: "exclamationmark.lock") { FullDiskAccess.openSystemSettings() }

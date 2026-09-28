@@ -65,6 +65,9 @@ struct MoriaCommands: Commands {
             Button("Search") { model?.focusSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .option])
                 .disabled(model == nil)
+            Button("Stop Search") { model?.stop() }
+                .keyboardShortcut(".")
+                .disabled(model?.isSearching != true)
             Button("Criteria…") { model?.showCriteria = true }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(model == nil)

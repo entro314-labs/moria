@@ -57,6 +57,7 @@ struct HelpView: View {
             shortcuts([
                 ("⌃⌥Space", "Quick search from anywhere (change in Settings)"),
                 ("⌥⌘F", "Go to the search field"),
+                ("⌘.", "Stop the search"),
                 ("Return (in the field)", "Move to the results"),
                 ("↑ ↓", "Move through results"),
                 ("Return  or  ⌘↓", "Open"),
