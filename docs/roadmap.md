@@ -7,13 +7,6 @@ reasons.
 Anything that stores new data in the index needs a new migration (`v4`, …); applied migrations
 are never edited.
 
-## Fixes
-
-Defects found in a review against Apple's macOS guidelines. They come before new work.
-
-- **Chosen sidebar folders are lost.** "Choose Folder…" in `SidebarView` keeps folders in view
-  state: they vanish when the window closes or the app quits, and can't be removed.
-
 ## Polish
 
 - **Reduce Motion.** The action palette scales in (`MainView`) and match stepping scrolls with
@@ -21,8 +14,6 @@ Defects found in a review against Apple's macOS guidelines. They come before new
 - **Increase Contrast.** Filter chips (14% tint, 25% dashed border) and match labels (14%
   capsules in `ResultsTable` and `InspectorView`) need stronger variants when Increase Contrast
   is on.
-- **Context menus on Locations.** Location rows have none: Show in Finder, and Remove for
-  chosen folders.
 - **Saved searches: Delete key and undo.** Deleting is permanent and only reachable from the
   context menu.
 - **Match stepping in the menu bar.** ⌘G / ⇧⌘G exist only as buttons in the inspector, so the

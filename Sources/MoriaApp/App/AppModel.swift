@@ -9,6 +9,8 @@ final class AppModel {
     let database: IndexDatabase
     let controller: IndexController
     let engine: SearchEngine
+    /// Where app preferences, saved searches and sidebar folders are kept.
+    let defaults: UserDefaults
 
     private(set) var progress = IndexProgress()
     private(set) var settings: MoriaSettings
@@ -21,7 +23,7 @@ final class AppModel {
 
     var hotKeyChoice: HotKey.Choice {
         didSet {
-            UserDefaults.standard.set(hotKeyChoice.rawValue, forKey: "hotKey")
+            defaults.set(hotKeyChoice.rawValue, forKey: "hotKey")
             registerHotKey()
         }
     }
@@ -38,10 +40,21 @@ final class AppModel {
     }
 
     /// Saved searches shown in the sidebar, like Finder smart folders.
-    private(set) var savedSearches: [SearchModel.SavedSearch] = {
-        guard let data = UserDefaults.standard.data(forKey: "savedSearches") else { return [] }
-        return (try? JSONDecoder().decode([SearchModel.SavedSearch].self, from: data)) ?? []
-    }()
+    private(set) var savedSearches: [SearchModel.SavedSearch]
+
+    /// Folders added to the sidebar with "Choose Folder…", besides the indexed locations.
+    private(set) var customLocations: [String]
+
+    func addCustomLocation(_ path: String) {
+        guard !customLocations.contains(path) else { return }
+        customLocations.append(path)
+        defaults.set(customLocations, forKey: "customLocations")
+    }
+
+    func removeCustomLocation(_ path: String) {
+        customLocations.removeAll { $0 == path }
+        defaults.set(customLocations, forKey: "customLocations")
+    }
 
     /// Adds a saved search, or replaces the one with the same id in place.
     func save(_ search: SearchModel.SavedSearch) {
@@ -80,7 +93,7 @@ final class AppModel {
 
     private func persistSavedSearches() {
         do {
-            UserDefaults.standard.set(try JSONEncoder().encode(savedSearches), forKey: "savedSearches")
+            defaults.set(try JSONEncoder().encode(savedSearches), forKey: "savedSearches")
         } catch {
             lastError = "Saved searches could not be stored: \(error.localizedDescription)"
         }
@@ -91,15 +104,19 @@ final class AppModel {
     private var hotKey: HotKey?
     private var lastStatsRefresh = Date.distantPast
 
-    init() throws {
+    init(defaults: UserDefaults = .standard) throws {
         MaterializationGuard.disableDownloads()
+        self.defaults = defaults
         // `-indexPath <file>` opens a different index (development and testing).
-        let path = UserDefaults.standard.string(forKey: "indexPath")
+        let path = defaults.string(forKey: "indexPath")
         database = try IndexDatabase(url: path.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? IndexDatabase.defaultURL)
         controller = try IndexController(database: database)
         engine = SearchEngine(database: database)
         settings = try database.loadSettings()
-        hotKeyChoice = UserDefaults.standard.string(forKey: "hotKey").flatMap(HotKey.Choice.init) ?? .controlOptionSpace
+        hotKeyChoice = defaults.string(forKey: "hotKey").flatMap(HotKey.Choice.init) ?? .controlOptionSpace
+        savedSearches = defaults.data(forKey: "savedSearches")
+            .flatMap { try? JSONDecoder().decode([SearchModel.SavedSearch].self, from: $0) } ?? []
+        customLocations = defaults.stringArray(forKey: "customLocations") ?? []
     }
 
     func start() {

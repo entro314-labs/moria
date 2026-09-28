@@ -6,7 +6,6 @@ import SwiftUI
 /// searches and locations, each with a live count.
 struct SidebarView: View {
     @Bindable var model: SearchModel
-    @State private var customFolders: [String] = []
     @State private var renaming: SearchModel.SavedSearch?
     @State private var newName = ""
 
@@ -56,6 +55,16 @@ struct SidebarView: View {
                     Label(title(for: path), systemImage: symbol(for: path))
                         .tag(SidebarItem.location(path))
                         .help(Display.abbreviate(path))
+                        .contextMenu {
+                            Button("Show in Finder") { FileActions.reveal([URL(fileURLWithPath: path)]) }
+                            if model.app.customLocations.contains(path) {
+                                Divider()
+                                Button("Remove from Sidebar") {
+                                    if model.sidebarSelection == .location(path) { model.sidebarSelection = .home }
+                                    model.app.removeCustomLocation(path)
+                                }
+                            }
+                        }
                 }
                 Button("Choose Folder…", systemImage: "plus") { chooseFolder() }
                     .buttonStyle(.borderless)
@@ -83,7 +92,7 @@ struct SidebarView: View {
         for name in ["Desktop", "Documents", "Downloads"] where !paths.contains(home + "/" + name) {
             paths.append(home + "/" + name)
         }
-        return paths + customFolders.filter { !paths.contains($0) }
+        return paths + model.app.customLocations.filter { !paths.contains($0) }
     }
 
     private func title(for path: String) -> String {
@@ -105,7 +114,7 @@ struct SidebarView: View {
         panel.canChooseFiles = false
         panel.prompt = "Search Here"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        customFolders.append(url.path)
+        model.app.addCustomLocation(url.path)
         model.sidebarSelection = .location(url.path)
     }
 }
