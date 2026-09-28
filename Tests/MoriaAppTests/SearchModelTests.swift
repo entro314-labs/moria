@@ -22,6 +22,22 @@ struct SearchModelTests {
 }
 
 @MainActor
+struct QueryBuildingTests {
+    /// The criteria builder counts what Search would show: the mode and the chosen filters
+    /// apply to its query as they do to the search field's.
+    @Test func queriesCarryTheModeAndTheFilters() throws {
+        let (app, _) = try makeAppModel()
+        let model = SearchModel(app: app)
+        var filters = FilterState()
+        filters.kinds = [.pdf]
+        let query = model.query(for: "lease \"rent receipt\"", scope: .names, filters: filters)
+        #expect(query.nameTerms == ["lease", "rent receipt"] && query.terms.isEmpty && query.phrases.isEmpty)
+        #expect(query.kinds == [.pdf])
+        #expect(model.query(for: "lease", scope: .contents, filters: FilterState()).contentTerms == ["lease"])
+    }
+}
+
+@MainActor
 struct StopSearchTests {
     /// An app model on a scratch index of two text files.
     private func indexedModel() async throws -> SearchModel {

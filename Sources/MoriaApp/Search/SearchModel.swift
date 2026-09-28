@@ -379,7 +379,7 @@ final class SearchModel {
             if scope == .regex {
                 await runRegex(pattern: text)
             } else {
-                await run(query(for: text, scope: scope))
+                await run(query(for: text, scope: scope, filters: filters))
             }
         }
     }
@@ -411,7 +411,9 @@ final class SearchModel {
         pendingDetails = []
     }
 
-    private func query(for text: String, scope: SearchScope) -> SearchQuery {
+    /// The search `text` stands for in `scope` with `filters`: what a search runs, and what the
+    /// criteria builder counts.
+    func query(for text: String, scope: SearchScope, filters: FilterState) -> SearchQuery {
         var query = QueryParser().parse(text)
         switch scope {
         case .names: query.restrictToNames()
@@ -514,7 +516,7 @@ final class SearchModel {
                 return
             } catch {
                 // Fall back to the plain parser so a request never yields nothing, and say so.
-                await run(query(for: request, scope: .everything))
+                await run(query(for: request, scope: .everything, filters: filters))
                 notice = "Ask couldn't interpret this (\(error)), so these results match the words"
                 if items.isEmpty { message = notice }
             }

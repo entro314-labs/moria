@@ -122,8 +122,12 @@ struct CriteriaBuilderView: View {
         guard !query.isEmpty else { count = nil; return }
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled else { return }
+        // Counted as Search would run it: in the saved search's mode and filters when editing,
+        // else in the window's.
+        let scope = editing?.scope ?? model.scope
+        let filters = editing?.filters ?? model.filters
         do {
-            let result = try await app.engine.search(QueryParser().parse(query), limit: 1000).count
+            let result = try await app.engine.search(model.query(for: query, scope: scope, filters: filters), limit: 1000).count
             guard !Task.isCancelled else { return }
             withAnimation { count = result }
         } catch {
