@@ -2,7 +2,9 @@
 # Builds build/Moria.app: release binaries, bundled ripgrep, icon, Info.plist, code signature.
 #
 #   Scripts/package_app.sh            # sign with the first "Apple Development" identity
-#   SIGN_IDENTITY="Developer ID Application: …" Scripts/package_app.sh
+#   SIGN_IDENTITY="Developer ID Application: …" Scripts/package_app.sh   # for distribution
+#
+# Releases (notarized disk image, version bump, tag) go through Scripts/release.sh.
 #
 # A stable signing identity matters: macOS ties Full Disk Access to the code signature, so an
 # ad-hoc signed build would lose the permission on every rebuild.
@@ -115,9 +117,16 @@ if [[ -z "$IDENTITY" ]]; then
   echo "No signing identity found; set SIGN_IDENTITY." >&2
   exit 1
 fi
+# Notarization needs a secure timestamp on every signature (from Apple's server, so it needs the
+# network); development builds skip it so they can be made offline.
+if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
+  TIMESTAMP=--timestamp
+else
+  TIMESTAMP=--timestamp=none
+fi
 for nested in "$APP/Contents/Resources/rg" "$APP/Contents/Resources/moria"; do
-  codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$nested"
+  codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$nested"
 done
-codesign --force --options runtime --timestamp=none --identifier com.entro314labs.moria --sign "$IDENTITY" "$APP"
+codesign --force --options runtime "$TIMESTAMP" --identifier com.entro314labs.moria --sign "$IDENTITY" "$APP"
 codesign --verify --strict "$APP"
 echo "Built $APP ($MARKETING_VERSION build $BUILD_NUMBER), signed by: $IDENTITY"

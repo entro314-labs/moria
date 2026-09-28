@@ -69,4 +69,12 @@ Scripts/package_app.sh      # build/Moria.app, signed with your Apple Developmen
 open build/Moria.app
 ```
 
+Releases are notarized disk images:
+
+```
+xcrun notarytool store-credentials moria --apple-id <apple id> --team-id <team id>   # once
+DRY_RUN=1 Scripts/release.sh 0.2.0   # check that it builds and signs; changes nothing
+Scripts/release.sh 0.2.0             # build/Moria-0.2.0.dmg, notarized; commit and tag v0.2.0
+```
+
 See `AGENTS.md` for the architecture.

@@ -15,10 +15,10 @@ are never edited.
 
 ## Major
 
-- **Distribution.** Signing with a Developer ID already works through `SIGN_IDENTITY`, and
-  the hardened runtime is on. Still missing: secure timestamps (`package_app.sh` passes
-  `--timestamp=none`, which notarization rejects), notarization and stapling, a disk image, an
-  update mechanism, and release versioning beyond `version.env`.
+- **Updates.** Releases are notarized disk images (`Scripts/release.sh`), but an installed copy
+  has no way to learn of a new one. Needs a place to publish releases first (the repository has
+  no remote); then either Sparkle (installs updates itself; needs a signing key and an appcast
+  feed) or a check against the latest release that links to the download.
 - **Answers from files.** Ask a question and get an answer with the files it came from. As
   `rejected-ideas.md` notes, the fit is a custom Foundation Models tool over `SearchEngine`
   that retrieves passages (Meaning's chunks) and cites them. The on-device context window limits
