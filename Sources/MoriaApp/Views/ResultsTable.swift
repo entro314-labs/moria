@@ -64,7 +64,7 @@ struct ResultsTable: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         enum Column: String, CaseIterable {
-            case name, location, kind, ext, size, modified, created
+            case name, location, kind, ext, tags, size, modified, created
 
             var identifier: NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier(rawValue) }
             var title: String {
@@ -73,6 +73,7 @@ struct ResultsTable: NSViewRepresentable {
                 case .location: "Where"
                 case .kind: "Kind"
                 case .ext: "Extension"
+                case .tags: "Tags"
                 case .size: "Size"
                 case .modified: "Modified"
                 case .created: "Created"
@@ -84,17 +85,19 @@ struct ResultsTable: NSViewRepresentable {
                 case .location: 220
                 case .kind: 90
                 case .ext: 70
+                case .tags: 110
                 case .size: 72
                 case .modified, .created: 120
                 }
             }
-            var visibleByDefault: Bool { self != .location && self != .ext && self != .created }
+            var visibleByDefault: Bool { self != .location && self != .ext && self != .created && self != .tags }
             var minWidth: CGFloat { self == .name ? 220 : 60 }
             var sort: ResultSort {
                 switch self {
                 case .name: .name
                 case .kind: .kind
                 case .ext: .ext
+                case .tags: .tags
                 case .size: .size
                 case .modified: .modified
                 case .location: .path
@@ -232,6 +235,8 @@ struct ResultsTable: NSViewRepresentable {
                 return cell
             case .ext:
                 return textCell(tableView, item.result.ext.isEmpty ? "—" : item.result.ext)
+            case .tags:
+                return textCell(tableView, item.result.tags.joined(separator: ", "))
             }
         }
 

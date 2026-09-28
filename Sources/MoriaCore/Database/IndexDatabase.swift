@@ -157,6 +157,16 @@ public final class IndexDatabase: Sendable {
                 CREATE INDEX file_stale ON file(mtime) WHERE contentState = 6;
                 """)
         }
+        // Finder tags, newline-separated with a newline at each end ("\nRed\nWork\n") so a
+        // whole tag can be matched with LIKE; NULL when untagged. Tags are read during the crawl,
+        // so the resume point is dropped: the next start runs a full scan that fills them in.
+        migrator.registerMigration("v4-tags") { db in
+            try db.execute(sql: """
+                ALTER TABLE file ADD COLUMN tags TEXT;
+                CREATE INDEX file_tagged ON file(id) WHERE tags IS NOT NULL;
+                DELETE FROM meta WHERE key = 'fsevents.lastID';
+                """)
+        }
         return migrator
     }
 

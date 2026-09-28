@@ -30,6 +30,7 @@ enum ResultSort: String, CaseIterable, Identifiable {
     case created = "Date Created"
     case path = "Where"
     case ext = "Extension"
+    case tags = "Tags"
 
     var id: String { rawValue }
 
@@ -37,7 +38,7 @@ enum ResultSort: String, CaseIterable, Identifiable {
     /// newest first.
     var defaultAscending: Bool {
         switch self {
-        case .name, .kind, .path, .ext: true
+        case .name, .kind, .path, .ext, .tags: true
         case .relevance, .size, .modified, .created: false
         }
     }
@@ -516,6 +517,8 @@ final class SearchModel {
             case .created: x.created < y.created
             case .path: x.path.localizedStandardCompare(y.path) == .orderedAscending
             case .ext: x.ext < y.ext
+            // Untagged files last.
+            case .tags: (x.tags.first ?? "\u{10FFFF}").localizedStandardCompare(y.tags.first ?? "\u{10FFFF}") == .orderedAscending
             case .relevance: x.score < y.score
             }
             return ascending ? ordered : !ordered
@@ -802,7 +805,7 @@ final class SearchModel {
         }
         let key = last[..<colon].lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         let typed = last[last.index(after: colon)...].lowercased()
-        let values = Self.values(for: key, roots: app.settings.roots)
+        let values = Self.values(for: key, roots: app.settings.roots, tags: app.tagNames)
         return values.filter { (typed.isEmpty || $0.value.lowercased().hasPrefix(typed)) && $0.value.lowercased() != typed }.prefix(8).map {
             Suggestion(title: last[..<colon] + ":" + $0.value + ($0.help.isEmpty ? "" : "  —  " + $0.help),
                        symbol: "line.3.horizontal.decrease.circle",
@@ -814,10 +817,13 @@ final class SearchModel {
         ("kind:", "file type"), ("ext:", "extension"), ("size:", "file size"), ("modified:", "date modified"),
         ("created:", "date created"), ("in:", "folder"), ("name:", "name only"), ("content:", "contents only"),
         ("hidden:", "hidden files"), ("cloud:", "cloud-only files"), ("similar:", "documents like a file"),
+        ("tag:", "Finder tag"),
     ]
 
-    private static func values(for key: String, roots: [String]) -> [(value: String, help: String)] {
+    private static func values(for key: String, roots: [String], tags: [String]) -> [(value: String, help: String)] {
         switch key {
+        case "tag", "tags":
+            return tags.map { ($0.contains(" ") ? "\"\($0)\"" : $0, "") }
         case "kind":
             return FileKind.allCases.filter { $0 != .other && $0 != .package }.map { ($0.rawValue, $0.displayName) }
         case "ext", "extension", "type":

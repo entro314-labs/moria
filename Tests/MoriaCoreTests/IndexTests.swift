@@ -304,6 +304,21 @@ struct IndexTests {
             found = try await search(engine, "quokka")
         }
         #expect(found == ["Documents/new.txt"])
+
+        // Tagging in another process (as Finder does) changes only an extended attribute.
+        let tagger = try Process.run(URL(fileURLWithPath: "/usr/bin/xattr"), arguments: [
+            "-wx", "com.apple.metadata:_kMDItemUserTags",
+            // A binary property list of ["Purple"].
+            "62706C6973743030A10156507572706C65080A0000000000000101000000000000000200000000000000000000000000000011",
+            root.appending(path: "Documents/draft.txt").path,
+        ])
+        tagger.waitUntilExit()
+        var tagged: [String] = []
+        for _ in 0..<40 where tagged.isEmpty {
+            try await Task.sleep(for: .milliseconds(250))
+            tagged = try await search(engine, "tag:purple")
+        }
+        #expect(tagged == ["Documents/draft.txt"])
     }
 
     @Test func regexSearchUsesRipgrepAndIndexedText() async throws {
@@ -437,5 +452,38 @@ struct IndexTests {
         await #expect(throws: SearchEngine.SearchError.self) {
             try await engine.search(QueryParser(home: root.path).parse("similar:\(root.path)/Tools.app"))
         }
+    }
+
+    @Test func finderTagsAreIndexedWhereContentsAreRead() async throws {
+        func tag(_ path: String, _ tags: [String]) throws {
+            try (root.appending(path: path) as NSURL).setResourceValue(tags, forKey: .tagNamesKey)
+        }
+        try tag("Documents/Taxes/receipt.txt", ["Red", "Needs Review"])
+        try tag("Documents/draft.txt", ["Blue"])
+        try tag("App/build/output.txt", ["Red"])  // names-only folder: tags aren't read there
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+
+        #expect(try await search(engine, "tag:red") == ["Documents/Taxes/receipt.txt"])
+        #expect(try await search(engine, #"tag:"needs review""#) == ["Documents/Taxes/receipt.txt"])
+        #expect(try await search(engine, "tag:blue,red").sorted() == ["Documents/Taxes/receipt.txt", "Documents/draft.txt"])
+        #expect(try await search(engine, "rent -tag:red") == ["Documents/draft.txt"])
+        // A whole tag, not part of one.
+        #expect(try await search(engine, "tag:re").isEmpty)
+        let hit = try #require(try await engine.search(QueryParser(home: root.path).parse("tag:red")).first)
+        #expect(hit.tags == ["Red", "Needs Review"])
+        #expect(try engine.tagNames() == ["Blue", "Needs Review", "Red"])
+
+        // Tagging changes neither the date nor the size; the watcher reports the path and the
+        // change is picked up.
+        try tag("Documents/draft.txt", [])
+        try tag("Documents/Billing.swift", ["Green"])
+        try await controller.apply([
+            FileChange(path: root.appending(path: "Documents/draft.txt").path, rescanSubtree: false),
+            FileChange(path: root.appending(path: "Documents/Billing.swift").path, rescanSubtree: false),
+        ])
+        #expect(try await search(engine, "tag:blue").isEmpty)
+        #expect(try await search(engine, "tag:green") == ["Documents/Billing.swift"])
     }
 }

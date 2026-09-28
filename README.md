@@ -28,6 +28,7 @@ ext:pdf,docx  kind:image  -kind:folder file types
 size:>10mb  size:1mb..5mb              size
 modified:<7d  modified:2026-03..2026-05  created:2025
 in:~/Documents  -in:~/Library          folders
+tag:red,"Needs Review"  -tag:done      Finder tags
 hidden:no  cloud:no
 similar:~/Documents/lease.pdf          documents close in meaning (Meaning on)
 ```

@@ -15,6 +15,8 @@ final class AppModel {
     private(set) var progress = IndexProgress()
     private(set) var settings: MoriaSettings
     private(set) var stats: IndexDatabase.Stats?
+    /// Finder tags in the index, most used first (for suggestions).
+    private(set) var tagNames: [String] = []
     private(set) var hasFullDiskAccess = FullDiskAccess.isGranted
     private(set) var hotKeyError: String?
     /// The last failed action of the app itself (indexing errors are in `progress.lastError`,
@@ -185,9 +187,14 @@ final class AppModel {
     func refreshStats() {
         lastStatsRefresh = Date()
         let database = database
+        let engine = engine
         Task.detached(priority: .utility) {
             let stats = try? database.stats()
-            await MainActor.run { self.stats = stats }
+            let tags = try? engine.tagNames()
+            await MainActor.run {
+                self.stats = stats
+                if let tags { self.tagNames = tags }
+            }
         }
     }
 

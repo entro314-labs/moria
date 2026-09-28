@@ -178,3 +178,24 @@ extension QueryParserTests {
         #expect(parser.parse(Criterion.query(from: criteria)).similarTo == "/Users/test/My Files/offer.pdf")
     }
 }
+
+extension QueryParserTests {
+    @Test func tagsParseFormatAndDescribe() throws {
+        let query = parser.parse(#"invoice tag:Red,"Needs Review" -tag:done"#)
+        #expect(query.tags == ["Red", "Needs Review"])
+        #expect(query.excludedTags == ["done"])
+        #expect(query.hasFilters)
+        #expect(parser.parse(QueryFormatter(calendar: calendar, home: "/Users/test").string(from: query)) == query)
+        #expect(parser.chips(for: "tag:red -tag:done").map(\.label) == ["Tagged red", "Not tagged done"])
+        let criteria = Criterion.criteria(from: #"tag:"Needs Review" -tag:done"#, home: "/Users/test")
+        #expect(criteria.map(\.attribute) == [.tag, .tag])
+        #expect(criteria.map(\.op) == [.is, .isNot])
+        #expect(parser.parse(Criterion.query(from: criteria)).tags == ["Needs Review"])
+
+        // Finder stores "Name\n<color>" entries in a binary property list.
+        let stored = try PropertyListSerialization.data(fromPropertyList: ["Red\n6", "Work"], format: .binary, options: 0)
+        #expect(FinderTags.parse(stored) == ["Red", "Work"])
+        #expect(FinderTags.names(fromStored: FinderTags.stored(["Red", "Work"])) == ["Red", "Work"])
+        #expect(FinderTags.stored([]) == nil)
+    }
+}

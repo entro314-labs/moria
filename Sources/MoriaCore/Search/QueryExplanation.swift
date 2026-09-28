@@ -51,6 +51,10 @@ extension QueryParser {
         if !query.excludedExtensions.isEmpty {
             return chip("Not " + query.excludedExtensions.sorted().map { "." + $0 }.joined(separator: ", "), "doc", exclusion: true)
         }
+        if !query.tags.isEmpty { return chip("Tagged " + query.tags.sorted().joined(separator: ", "), "tag") }
+        if !query.excludedTags.isEmpty {
+            return chip("Not tagged " + query.excludedTags.sorted().joined(separator: ", "), "tag.slash", exclusion: true)
+        }
         if let pattern = query.namePatterns.first {
             let label = switch pattern {
             case let .prefix(text): "Name begins with “\(text)”"

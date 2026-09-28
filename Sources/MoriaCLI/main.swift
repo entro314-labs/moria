@@ -107,7 +107,7 @@ struct Search: AsyncParsableCommand {
         discussion: """
             Query syntax: words, "phrases", -exclude, ext:pdf,docx kind:image size:>10mb \
             modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:x content:y \
-            hidden:no cloud:no similar:~/Documents/lease.pdf
+            hidden:no cloud:no tag:red -tag:done similar:~/Documents/lease.pdf
             """
     )
 

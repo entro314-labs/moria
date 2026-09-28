@@ -36,6 +36,10 @@ public struct SearchQuery: Sendable, Equatable {
     /// nil = don't care.
     public var hidden: Bool?
     public var cloudOnly: Bool?
+    /// `tag:`: Finder tags; a result must have one of them (case- and accent-insensitive).
+    public var tags: Set<String> = []
+    /// `-tag:`: results with any of these tags are dropped.
+    public var excludedTags: Set<String> = []
     /// `similar:`: rank documents by closeness in meaning to this file (semantic index).
     public var similarTo: String?
 
@@ -49,6 +53,7 @@ public struct SearchQuery: Sendable, Equatable {
         !extensions.isEmpty || !excludedExtensions.isEmpty || !namePatterns.isEmpty || !pathContains.isEmpty
             || !kinds.isEmpty || !excludedKinds.isEmpty || minSize != nil || maxSize != nil || modified != nil
             || created != nil || !folders.isEmpty || !excludedFolders.isEmpty || hidden != nil || cloudOnly != nil
+            || !tags.isEmpty || !excludedTags.isEmpty
     }
 
     public var isEmpty: Bool {
@@ -113,6 +118,7 @@ public enum NamePattern: Sendable, Equatable, Hashable {
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
 ///     content:lease hidden:no cloud:no -in:~/Library -kind:image -ext:tmp path:invoices
 ///     name:report* name:*.draft name:=README name:/^IMG_\d{4}$/ similar:~/Documents/lease.pdf
+///     tag:red,"Needs Review" -tag:done
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -144,6 +150,8 @@ public struct QueryParser: Sendable {
                     query.excludedFolders.append(expand(String(rest.dropFirst(key.count))))
                 } else if rest.lowercased().hasPrefix("ext:"), rest.count > 4 {
                     query.excludedExtensions.formUnion(Self.extensions(String(rest.dropFirst(4))))
+                } else if rest.lowercased().hasPrefix("tag:"), rest.count > 4 {
+                    query.excludedTags.formUnion(Self.tags(String(rest.dropFirst(4))))
                 } else if rest.lowercased().hasPrefix("kind:"),
                           case let kinds = rest.dropFirst(5).split(separator: ",").compactMap({ Self.kind(named: $0.lowercased()) }),
                           !kinds.isEmpty {
@@ -214,6 +222,9 @@ public struct QueryParser: Sendable {
         case "similar", "like":
             query.similarTo = expand(value)
             return true
+        case "tag", "tags":
+            query.tags.formUnion(Self.tags(value))
+            return true
         default:
             return false
         }
@@ -224,6 +235,10 @@ public struct QueryParser: Sendable {
     static func extensions(_ value: String) -> [String] {
         value.split(separator: ",").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased() }
             .filter { !$0.isEmpty }
+    }
+
+    static func tags(_ value: String) -> [String] {
+        value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     static func kind(named name: some StringProtocol) -> FileKind? {

@@ -24,7 +24,8 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
 - Settings live in the index (`meta`); the running app re-reads them (`IndexController.reloadSettings`) so `moria config` changes apply. A change to what is crawled clears the FSEvents resume point until a full scan completes.
 - Regex: names and stored text use ICU; files use ripgrep with `--engine auto` (PCRE2 when a pattern needs it). Case-sensitive patterns carry `(?-i)`. Homebrew's ripgrep, linked against Homebrew's PCRE2, misses some PCRE2 matches; the app bundles the official static build.
 - The process sets `IOPOL_MATERIALIZE_DATALESS_FILES_OFF` so reading a cloud placeholder fails instead of downloading it. Keep it that way.
-- Schema changes go in new migrations (`v3`, …): real indexes exist with `v1` and `v2-filter-indexes` applied; `v3-stale-content` is applied the first time a build with it opens an index. Never edit applied migrations.
+- Finder tags are a `file.tags` column ("\nRed\nWork\n", NULL when untagged), read during the crawl only where contents are read: `getxattr` costs ~25 µs per file even when absent. The upsert always takes the tags read, since tagging changes neither mtime nor size.
+- Schema changes go in new migrations (`v3`, …): real indexes exist with `v1` and `v2-filter-indexes` applied; `v3-stale-content` and `v4-tags` are applied the first time a build with them opens an index (`v4-tags` drops the resume point so the next start scans for tags). Never edit applied migrations.
 - `MoriaSettings` decodes missing keys with defaults; keep that when adding settings.
 
 ## Build, test, run

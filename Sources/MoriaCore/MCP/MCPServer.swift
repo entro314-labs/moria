@@ -162,7 +162,7 @@ public struct MCPServer: Sendable {
                 -exclude, name:report, content:lease, name:IMG* name:*.draft name:=README name:/regex/, \
                 path:invoices, ext:pdf,docx, kind:document|pdf|image|audio|video|archive|text|code|folder|app, \
                 size:>10mb, size:1mb..5mb, modified:<7d, modified:2026-03..2026-05, created:2025, \
-                in:~/Documents, -in:~/Library, hidden:no, cloud:no, similar:<path> (documents close in meaning \
+                in:~/Documents, -in:~/Library, tag:red (Finder tags), hidden:no, cloud:no, similar:<path> (documents close in meaning \
                 to a file). A query of only filters lists matching files, newest first.
                 """),
             "inputSchema": .object([

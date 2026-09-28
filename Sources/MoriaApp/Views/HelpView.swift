@@ -80,6 +80,7 @@ struct HelpView: View {
             paragraph("Moria keeps its own index, so it finds files Spotlight skips. Every file and folder under your locations is indexed by name, including hidden files and app data. Changes are picked up as they happen, including those made while Moria wasn't running.")
             paragraph("Text is read from documents, PDFs (scanned pages are recognized), Office and OpenDocument files, e-books, web pages, email files, code and plain text, and images of text. To keep the index small, files in your Library, in hidden folders and in dependency or build folders are indexed by name only; you can change this in Settings › Contents. Regex search still reads code and text files everywhere.")
             paragraph("Files in iCloud Drive, Dropbox, OneDrive and Google Drive that aren't downloaded are indexed by name only. Moria never downloads files to read them.")
+            paragraph("Finder tags are indexed where contents are read, and follow changes as you tag files. Search them with `tag:`, and show them in the Tags column (right-click the column headers).")
             paragraph("For Moria to see Mail, Messages and other protected data, allow **Full Disk Access** in System Settings › Privacy & Security. Everything stays on this Mac.")
         case .intelligence:
             paragraph("Turn these on in Settings › Intelligence. Both use Apple's on-device models; nothing is sent anywhere.")
@@ -130,6 +131,7 @@ struct SyntaxTable: View {
         ("modified:2026-03..2026-05", "calendar ranges (year, month or day)"),
         ("created:2025", "creation date"),
         ("in:~/Documents  -in:~/Library", "inside or outside a folder"),
+        ("tag:red,\"Needs Review\"  -tag:done", "Finder tags (any of them), or leave some out"),
         ("hidden:no  cloud:no", "skip hidden files or cloud-only files"),
         ("similar:~/Documents/lease.pdf", "documents close in meaning to a file (Meaning on)"),
     ]

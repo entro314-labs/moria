@@ -18,6 +18,74 @@ public struct FileMeta: Sendable, Equatable {
     public var contentEligible: Bool = true
     /// Symbolic links are indexed by name; their targets are never read through them.
     public var isSymlink: Bool = false
+    /// Finder tag names.
+    public var tags: [String] = []
+}
+
+/// Finder tags, read from the `com.apple.metadata:_kMDItemUserTags` extended attribute.
+///
+/// Reading an extended attribute costs ~25-40 µs per file even when it is absent, which would
+/// double the time of a full crawl. So tags are read only where contents are read (not in
+/// Library, hidden or dependency folders, which are indexed by name only), several files at a
+/// time.
+enum FinderTags {
+    static let attribute = "com.apple.metadata:_kMDItemUserTags"
+    /// Concurrent reads per batch; more gave no further speedup.
+    static let readers = 4
+
+    static func isRead(for meta: FileMeta) -> Bool {
+        meta.contentEligible && !meta.isSymlink
+    }
+
+    /// Reads the tags of every entry in `batch` that gets them.
+    static func fill(_ batch: inout [FileMeta]) {
+        let count = batch.count
+        batch.withUnsafeMutableBufferPointer { entries in
+            nonisolated(unsafe) let entries = entries
+            // Each reader writes only its own indices.
+            DispatchQueue.concurrentPerform(iterations: readers) { reader in
+                var index = reader
+                while index < count {
+                    if isRead(for: entries[index]) { entries[index].tags = read(path: entries[index].path) }
+                    index += readers
+                }
+            }
+        }
+    }
+
+    /// Tag names of the entry at `path` (not following symlinks); empty when untagged. Most
+    /// files have no tags, so this is usually one failed `getxattr` call.
+    static func read(path: UnsafePointer<CChar>) -> [String] {
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        var length = getxattr(path, attribute, &buffer, buffer.count, 0, XATTR_NOFOLLOW)
+        if length < 0, errno == ERANGE {
+            // More tags than fit: ask for the size, then read again.
+            length = getxattr(path, attribute, nil, 0, 0, XATTR_NOFOLLOW)
+            guard length > 0 else { return [] }
+            buffer = [UInt8](repeating: 0, count: length)
+            length = getxattr(path, attribute, &buffer, buffer.count, 0, XATTR_NOFOLLOW)
+        }
+        guard length > 0 else { return [] }
+        return parse(Data(buffer.prefix(length)))
+    }
+
+    /// The attribute is a property list of strings "Name" or "Name\n<color number>".
+    static func parse(_ data: Data) -> [String] {
+        guard let entries = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] else { return [] }
+        return entries.compactMap { entry in
+            let name = entry.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            return name.isEmpty ? nil : name
+        }
+    }
+
+    /// The stored form: "\nRed\nWork\n", or nil when untagged.
+    static func stored(_ tags: [String]) -> String? {
+        tags.isEmpty ? nil : "\n" + tags.joined(separator: "\n") + "\n"
+    }
+
+    static func names(fromStored value: String?) -> [String] {
+        value?.split(separator: "\n").map(String.init) ?? []
+    }
 }
 
 /// Rules deciding which entries a crawl visits.
@@ -151,11 +219,15 @@ struct Crawler {
                 isSymlink: info == FTS_SL || info == FTS_SLNONE
             ))
             if batch.count >= batchSize {
+                FinderTags.fill(&batch)
                 try visit(batch)
                 batch.removeAll(keepingCapacity: true)
             }
         }
-        if !batch.isEmpty { try visit(batch) }
+        if !batch.isEmpty {
+            FinderTags.fill(&batch)
+            try visit(batch)
+        }
     }
 
     /// Stats a single path without following symlinks. Returns nil when it no longer exists.
@@ -166,7 +238,7 @@ struct Crawler {
         let isDir = (st.st_mode & S_IFMT) == S_IFDIR
         let ext = Self.extensionOf(name)
         let kind = classifier.classify(ext: ext, isDirectory: isDir).kind
-        return FileMeta(
+        var meta = FileMeta(
             path: path, name: name, ext: ext,
             isDir: isDir, size: isDir ? 0 : Int64(st.st_size),
             mtime: Self.seconds(st.st_mtimespec), btime: Self.seconds(st.st_birthtimespec),
@@ -175,6 +247,8 @@ struct Crawler {
             contentEligible: rules.isContentEligible(path: path),
             isSymlink: (st.st_mode & S_IFMT) == S_IFLNK
         )
+        if FinderTags.isRead(for: meta) { meta.tags = FinderTags.read(path: path) }
+        return meta
     }
 
     /// Whether `path` is a package that the rules treat as a single item.

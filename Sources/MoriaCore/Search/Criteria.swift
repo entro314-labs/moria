@@ -7,7 +7,7 @@ import Foundation
 /// different attributes; values within one row can list alternatives, e.g. `pdf, docx`).
 public struct Criterion: Identifiable, Equatable, Sendable {
     public enum Attribute: String, CaseIterable, Identifiable, Sendable {
-        case words, name, ext, contents, kind, path, folder, size, modified, created, hidden, cloud, similar
+        case words, name, ext, contents, kind, tag, path, folder, size, modified, created, hidden, cloud, similar
 
         public var id: String { rawValue }
         public var title: String {
@@ -17,6 +17,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .ext: "Extension"
             case .contents: "Contents"
             case .kind: "Kind"
+            case .tag: "Tags"
             case .path: "Path"
             case .folder: "Folder"
             case .size: "Size"
@@ -32,7 +33,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             switch self {
             case .words: [.contains, .containsPhrase, .doesNotContain]
             case .name: [.contains, .beginsWith, .endsWith, .isExactly, .matchesRegex]
-            case .ext, .kind, .folder: [.is, .isNot]
+            case .ext, .kind, .folder, .tag: [.is, .isNot]
             case .similar: [.is]
             case .contents: [.contains, .containsPhrase]
             case .path: [.contains]
@@ -132,6 +133,8 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         case (.ext, _): return "-ext:" + value.replacingOccurrences(of: " ", with: "")
         case (.kind, .is): return "kind:" + value
         case (.kind, _): return "-kind:" + value
+        case (.tag, .is): return "tag:" + quoted(value)
+        case (.tag, _): return "-tag:" + quoted(value)
         case (.path, _): return "path:" + quoted(value)
         case (.folder, .is): return "in:" + quoted(value)
         case (.folder, _): return "-in:" + quoted(value)
@@ -190,6 +193,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             }
         case "ext", "extension", "type": return Criterion(attribute: .ext, op: negated ? .isNot : .is, value: value)
         case "kind": return Criterion(attribute: .kind, op: negated ? .isNot : .is, value: value)
+        case "tag", "tags": return Criterion(attribute: .tag, op: negated ? .isNot : .is, value: value)
         case "content" where !negated, "text" where !negated:
             return Criterion(attribute: .contents, op: value.contains(" ") ? .containsPhrase : .contains, value: value)
         case "path" where !negated: return Criterion(attribute: .path, op: .contains, value: value)

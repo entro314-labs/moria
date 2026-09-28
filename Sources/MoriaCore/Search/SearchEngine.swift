@@ -13,6 +13,8 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var modified: Date
     public var created: Date
     public var isCloudOnly: Bool
+    /// Finder tag names.
+    public var tags: [String] = []
     /// Why it matched.
     public var matchedName: Bool
     public var matchedContent: Bool
@@ -367,7 +369,7 @@ public final class SearchEngine: Sendable {
 
     // MARK: - SQL helpers
 
-    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly"
+    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly, f.tags"
 
     static func result(from row: Row, name: Bool = false, content: Bool = false) -> SearchResult {
         // Snippets are built on demand by `snippet(for:query:)`.
@@ -375,9 +377,22 @@ public final class SearchEngine: Sendable {
             id: row["id"], path: row["path"], name: row["name"], ext: row["ext"],
             kind: FileKind(rawValue: row["kind"]) ?? .other, isDirectory: row["isDir"], size: row["size"],
             modified: Date(timeIntervalSince1970: row["mtime"]), created: Date(timeIntervalSince1970: row["btime"]),
-            isCloudOnly: row["isCloudOnly"], matchedName: name, matchedContent: content, matchedMeaning: false, meaningChunk: nil,
+            isCloudOnly: row["isCloudOnly"], tags: FinderTags.names(fromStored: row["tags"]),
+            matchedName: name, matchedContent: content, matchedMeaning: false, meaningChunk: nil,
             snippet: nil, score: 0
         )
+    }
+
+    /// Every Finder tag in the index, most used first (for suggestions).
+    public func tagNames() throws -> [String] {
+        try database.pool.read { db in
+            var counts: [String: Int] = [:]
+            let cursor = try String.fetchCursor(db, sql: "SELECT tags FROM file WHERE tags IS NOT NULL")
+            while let stored = try cursor.next() {
+                for tag in FinderTags.names(fromStored: stored) { counts[tag, default: 0] += 1 }
+            }
+            return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map(\.key)
+        }
     }
 
     /// FTS5 string literal.
@@ -463,6 +478,18 @@ struct FilterSQL {
         if let cloud = query.cloudOnly {
             add("f.isCloudOnly = ?", cloud)
         }
+        // Whole tags, folded like names. `tags IS NOT NULL` lets SQLite use the tagged-files index.
+        if !query.tags.isEmpty {
+            let clauses = query.tags.map { _ in "moria_fold(f.tags) LIKE ? ESCAPE '\\'" }.joined(separator: " OR ")
+            add("(f.tags IS NOT NULL AND (\(clauses)))", values: query.tags.sorted().map(Self.tagPattern))
+        }
+        for tag in query.excludedTags.sorted() {
+            add("(f.tags IS NULL OR moria_fold(f.tags) NOT LIKE ? ESCAPE '\\')", Self.tagPattern(tag))
+        }
+    }
+
+    private static func tagPattern(_ tag: String) -> String {
+        "%\n" + SearchEngine.escapeLike(tag.searchFolded) + "\n%"
     }
 
     var clause: String {

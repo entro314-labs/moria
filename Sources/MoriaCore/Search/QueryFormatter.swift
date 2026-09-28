@@ -23,6 +23,8 @@ public struct QueryFormatter: Sendable {
         if !query.extensions.isEmpty { parts.append("ext:" + query.extensions.sorted().joined(separator: ",")) }
         if !query.excludedExtensions.isEmpty { parts.append("-ext:" + query.excludedExtensions.sorted().joined(separator: ",")) }
         if !query.kinds.isEmpty { parts.append("kind:" + query.kinds.map(\.rawValue).sorted().joined(separator: ",")) }
+        if !query.tags.isEmpty { parts.append("tag:" + quotedIfNeeded(query.tags.sorted().joined(separator: ","))) }
+        if !query.excludedTags.isEmpty { parts.append("-tag:" + quotedIfNeeded(query.excludedTags.sorted().joined(separator: ","))) }
         if !query.excludedKinds.isEmpty { parts.append("-kind:" + query.excludedKinds.map(\.rawValue).sorted().joined(separator: ",")) }
         switch (query.minSize, query.maxSize) {
         case let (min?, max?): parts.append("size:\(bytes(min))..\(bytes(max))")

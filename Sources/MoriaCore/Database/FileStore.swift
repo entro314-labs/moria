@@ -39,13 +39,15 @@ struct MetadataWriter {
         try database.pool.write { db in
             let upsertFile = try db.cachedStatement(sql: """
                 INSERT INTO file (dirId, name, ext, isDir, size, mtime, btime, kind,
-                                  isHidden, isCloudOnly, contentState, seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  isHidden, isCloudOnly, contentState, seen, tags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(dirId, name) DO UPDATE SET
                     ext = excluded.ext, isDir = excluded.isDir, size = excluded.size,
                     mtime = excluded.mtime, btime = excluded.btime, kind = excluded.kind,
                     isHidden = excluded.isHidden, isCloudOnly = excluded.isCloudOnly,
                     seen = excluded.seen,
+                    -- Tagging changes neither mtime nor size, so tags are always taken as read.
+                    tags = excluded.tags,
                     contentState = CASE
                         WHEN file.mtime != excluded.mtime OR file.size != excluded.size
                              OR file.isCloudOnly != excluded.isCloudOnly
@@ -60,6 +62,7 @@ struct MetadataWriter {
                 try upsertFile.execute(arguments: [
                     parentID, meta.name, meta.ext, meta.isDir, meta.size, meta.mtime, meta.btime,
                     meta.kind.rawValue, meta.isHidden, meta.isCloudOnly, initialState(meta).rawValue, generation,
+                    FinderTags.stored(meta.tags),
                 ])
             }
         }

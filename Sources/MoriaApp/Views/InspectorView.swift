@@ -254,6 +254,7 @@ private struct InfoPane: View {
                 row("Kind", result.isDirectory && result.kind == .folder ? "Folder" : result.kind.displayName)
                 if !result.isDirectory { row("Size", ByteCountFormatter.string(fromByteCount: result.size, countStyle: .file)) }
                 ForEach(facts, id: \.0) { row($0.0, $0.1) }
+                if !result.tags.isEmpty { row("Tags", result.tags.joined(separator: ", ")) }
                 row("Modified", Display.absoluteDate.string(from: result.modified))
                 row("Created", Display.absoluteDate.string(from: result.created))
                 if result.isCloudOnly { row("Storage", "In the cloud, not downloaded") }
