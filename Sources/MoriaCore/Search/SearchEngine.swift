@@ -109,8 +109,10 @@ public final class SearchEngine: Sendable {
     private func nameMatches(_ query: SearchQuery, db: Database, limit: Int) throws -> [SearchResult] {
         let words = query.terms + query.nameTerms + query.phrases
         guard query.contentTerms.isEmpty, !words.isEmpty else { return [] }
-        // Trigram FTS needs 3+ characters; shorter words become a filename prefix match.
-        let folded = words.map(\.searchFolded)
+        // Trigram FTS needs 3+ characters; shorter words become a filename prefix match. Greek
+        // and Cyrillic words match by their stem (a substring of every form); phrases don't.
+        let folded = (query.terms + query.nameTerms).map { Stemmer.stem($0.searchFolded) ?? $0.searchFolded }
+            + query.phrases.map(\.searchFolded)
         let long = folded.filter { $0.count >= 3 }
         let short = folded.filter { $0.count < 3 }
         var filter = FilterSQL(query: query, home: home)
@@ -136,7 +138,7 @@ public final class SearchEngine: Sendable {
 
     private func contentMatches(_ query: SearchQuery, db: Database, limit: Int) throws -> [SearchResult] {
         // A single letter says nothing about contents and matches most documents.
-        var parts = (query.terms.filter { $0.count > 1 } + query.contentTerms).compactMap(Self.prefixTerm)
+        var parts = (query.terms.filter { $0.count > 1 } + query.contentTerms).compactMap(Self.contentTerm)
         parts += query.phrases.map(Self.quote)
         guard !parts.isEmpty else { return [] }
         var filter = FilterSQL(query: query, home: home)
@@ -174,7 +176,7 @@ public final class SearchEngine: Sendable {
         var ranking = index.search(vector, limit: limit + 1)
         ranking.hits.removeAll { $0.fileID == fileID }
         let hits = Self.standouts(ranking)
-        let words = (query.terms + query.contentTerms + query.nameTerms).compactMap(Self.prefixTerm) + query.phrases.map(Self.quote)
+        let words = (query.terms + query.contentTerms + query.nameTerms).compactMap(Self.contentTerm) + query.phrases.map(Self.quote)
         let rows = try fetch(ids: hits.map(\.fileID), query: query, contentMatch: words.isEmpty ? nil : words.joined(separator: " AND "))
         return hits.compactMap { hit in
             guard var result = rows[hit.fileID] else { return nil }
@@ -403,6 +405,12 @@ public final class SearchEngine: Sendable {
     /// A prefix query for one word (`"invo"*`), so results appear while typing. Words under
     /// three characters match whole words only: a prefix like `"ab"*` expands to a large part
     /// of the vocabulary and makes every keystroke slow on a big index.
+    /// The content-index query for one word: its prefix, or for Greek and Cyrillic words the
+    /// prefix of their stem, which every inflected form shares.
+    static func contentTerm(_ term: String) -> String? {
+        prefixTerm(Stemmer.stem(term.trimmingCharacters(in: .whitespaces).searchFolded) ?? term)
+    }
+
     static func prefixTerm(_ term: String) -> String? {
         let trimmed = term.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
@@ -449,7 +457,7 @@ struct FilterSQL {
         // words and to meaning matches. Names are folded like the name index ("-cafe" drops "Café").
         for term in query.excludedTerms {
             add("moria_fold(f.name) NOT LIKE ? ESCAPE '\\'", "%" + SearchEngine.escapeLike(term.searchFolded) + "%")
-            if let match = SearchEngine.prefixTerm(term) {
+            if let match = SearchEngine.contentTerm(term) {
                 add("f.id NOT IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)", match)
             }
         }

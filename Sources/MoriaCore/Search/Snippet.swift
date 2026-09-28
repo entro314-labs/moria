@@ -15,7 +15,7 @@ enum Snippet {
         let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
         var first = terms.compactMap { text.range(of: $0, options: options) }.min { $0.lowerBound < $1.lowerBound }
         if first == nil {
-            // The index stems English words; highlight the stem ("invoices" -> "invoic").
+            // Words match by their stem; highlight it ("invoices" -> "invoic", "αποδείξεις" -> "αποδειξ").
             terms = terms.map(stem)
             first = terms.compactMap { text.range(of: $0, options: options) }.min { $0.lowerBound < $1.lowerBound }
         }
@@ -70,8 +70,10 @@ enum Snippet {
         return (count, lines)
     }
 
-    /// Strips common English inflections, approximating the index's Porter stemmer.
+    /// The stem a word matched by: the Greek or Russian stem the search used, or common English
+    /// inflections stripped, approximating the index's Porter stemmer.
     static func stem(_ word: String) -> String {
+        if let stem = Stemmer.stem(word.searchFolded) { return stem }
         let lower = word.lowercased()
         for suffix in ["ies", "es", "s", "ing", "ed", "ly"] where lower.hasSuffix(suffix) && lower.count > suffix.count + 3 {
             return String(word.dropLast(suffix.count))

@@ -486,4 +486,27 @@ struct IndexTests {
         #expect(try await search(engine, "tag:blue").isEmpty)
         #expect(try await search(engine, "tag:green") == ["Documents/Billing.swift"])
     }
+
+    @Test func greekAndRussianWordsMatchOtherFormsOfTheWord() async throws {
+        try Data("Подписанные договоры аренды".utf8).write(to: root.appending(path: "Documents/contracts.txt"))
+        try Data("x".utf8).write(to: root.appending(path: "Documents/Αποδείξεις 2026.pdf"))
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+
+        // The note says "Απόδειξη ενοικίου"; the query uses the plural and another case.
+        #expect(try await search(engine, "αποδείξεις ενοίκια kind:text") == ["Documents/greek-note.md"])
+        #expect(try await search(engine, "content:договор") == ["Documents/contracts.txt"])
+        #expect(try await search(engine, "content:договора") == ["Documents/contracts.txt"])
+        // Names match by stem too.
+        #expect(try await search(engine, "name:απόδειξη") == ["Documents/Αποδείξεις 2026.pdf"])
+        // Exclusions use the same stem.
+        #expect(try await search(engine, "kind:text -αποδείξεις -договора -rent -output").isEmpty)
+        // The excerpt highlights the matching form.
+        let hit = try #require(try await engine.search(QueryParser(home: root.path).parse("αποδείξεις kind:text")).first)
+        let snippet = try await engine.snippet(for: hit, query: QueryParser(home: root.path).parse("αποδείξεις"))
+        #expect(snippet?.contains("\u{1}Απόδειξ\u{2}η") == true)
+        // Latin script is unchanged (Porter, in the index).
+        #expect(Stemmer.stem("invoices") == nil)
+    }
 }

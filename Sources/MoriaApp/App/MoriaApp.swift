@@ -183,7 +183,7 @@ enum AboutPanel {
             attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
         )
         credits.append(NSAttributedString(
-            string: "Includes ripgrep by Andrew Gallant (MIT / Unlicense), GRDB.swift by Gwendal Roué (MIT), and Swift Subprocess and Swift System by Apple (Apache 2.0). Built on SQLite FTS5, PDFKit, Vision, Natural Language and Foundation Models. Everything is indexed on this Mac and never leaves it.",
+            string: "Includes ripgrep by Andrew Gallant (MIT / Unlicense), GRDB.swift by Gwendal Roué (MIT), Snowball stemmers by Martin Porter and contributors (BSD), and Swift Subprocess and Swift System by Apple (Apache 2.0). Built on SQLite FTS5, PDFKit, Vision, Natural Language and Foundation Models. Everything is indexed on this Mac and never leaves it.",
             attributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor]
         ))
         NSApp.activate()

@@ -25,3 +25,4 @@
 - Find Similar (with Meaning on): `similar:<file>` lists the documents closest in meaning to a file, narrowed by any filters or words; in the File menu, the action palette and result context menus, and in the CLI.
 - `moria mcp`: a Model Context Protocol server (stdio) with read-only `search`, `regex_search` and `index_status` tools for local AI agents.
 - Finder tags: `tag:red,"Needs Review"` and `-tag:done` filters, a Tags criterion, an optional Tags column, tags in the preview info, and tag suggestions. Tags are read where contents are read and follow changes live; an existing index is rescanned once to pick them up.
+- Greek and Russian stemming: a word finds its other forms in names, contents, exclusions and highlighted excerpts (“αποδείξεις” finds “απόδειξη”), without re-indexing.

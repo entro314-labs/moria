@@ -23,10 +23,6 @@ are never edited.
   (`IndexController.resumableEventID`), and a full scan while a volume is unmounted prunes all
   of its entries (`pruneUnseen`). Needed: a resume point per volume, entries kept and marked
   offline while their volume is away, and a volume filter.
-- **Stemming beyond English.** The content index uses FTS5's Porter stemmer, which only stems
-  English. Other languages (Greek included) match only exact word forms after folding. Options:
-  lemmas from NaturalLanguage for the languages it supports, or per-language tokenization.
-  Either way it means new FTS tables in a migration and reading all text again.
 - **Duplicates.** Group files by size from the index, then hash only the candidates. Needs a
   hash column (migration), must skip cloud-only files (`MaterializationGuard`), and a place in
   the UI (a collection or a mode).

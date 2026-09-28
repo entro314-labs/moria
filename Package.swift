@@ -16,9 +16,11 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-subprocess", from: "1.0.0"),
     ],
     targets: [
+        .target(name: "CSnowball"),
         .target(
             name: "MoriaCore",
             dependencies: [
+                "CSnowball",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Subprocess", package: "swift-subprocess"),
             ]
