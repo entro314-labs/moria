@@ -91,6 +91,7 @@ struct HelpView: View {
             paragraph("**Drag and drop:** drop a folder from Finder on a Moria window to search inside it. Drag results out to Finder or any app.")
             paragraph("**Links:** `moria://search?q=invoice%20ext:pdf&scope=contents` opens a search. Scopes: everything, names, contents, regex.")
             paragraph("**Command line:** the `moria` tool in Moria.app/Contents/Resources shares the app's index: `moria search \"lease\" --json`, `moria search --regex 'INV-\\d+'`, `moria stats`. Add `--show` to open the results in the app.")
+            paragraph("**AI agents:** `moria mcp` is a Model Context Protocol server. Add it to an agent (Claude, Cursor, …) as a stdio server with the command `/Applications/Moria.app/Contents/Resources/moria` and the argument `mcp`; the agent can then search names, contents and regular expressions. It can't change files.")
         }
     }
 

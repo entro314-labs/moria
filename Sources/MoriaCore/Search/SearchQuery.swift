@@ -55,6 +55,19 @@ public struct SearchQuery: Sendable, Equatable {
         !hasTextCriteria && !hasFilters && excludedTerms.isEmpty && similarTo == nil
     }
 
+    /// Words and phrases match file names only (the Names mode). Phrases move too: left in
+    /// `phrases`, they would still match contents.
+    public mutating func restrictToNames() {
+        nameTerms += terms + phrases
+        (terms, phrases) = ([], [])
+    }
+
+    /// Words and phrases match contents only (the Contents mode).
+    public mutating func restrictToContents() {
+        contentTerms += terms + phrases
+        (terms, phrases) = ([], [])
+    }
+
     /// The words a semantic query should embed.
     public var semanticText: String {
         (terms + phrases + contentTerms).joined(separator: " ")

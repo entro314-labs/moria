@@ -9,8 +9,17 @@ struct Moria: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "moria",
         abstract: "Deep file search for macOS: filenames, contents, regex, meaning.",
-        subcommands: [Index.self, Watch.self, Search.self, Stats.self, Config.self]
+        version: Moria.version,
+        subcommands: [Index.self, Watch.self, Search.self, Stats.self, Config.self, MCP.self]
     )
+
+    /// The app's version when run from `Moria.app/Contents/Resources`, else "dev".
+    static var version: String {
+        guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return "dev" }
+        let plist = executable.deletingLastPathComponent().deletingLastPathComponent().appending(path: "Info.plist")
+        let info = NSDictionary(contentsOf: plist)
+        return info?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
 }
 
 struct DatabaseOption: ParsableArguments {
@@ -159,7 +168,7 @@ struct Search: AsyncParsableCommand {
         for var result in results {
             result.snippet = try await engine.snippet(for: result, query: parsed)
             if json {
-                print(Self.json(result))
+                print(try ResultRecord(result, snippet: result.snippet).json)
             } else {
                 let why = [result.matchedName ? "name" : nil, result.matchedContent ? "content" : nil, result.matchedMeaning ? "meaning" : nil]
                     .compactMap { $0 }.joined(separator: "+")
@@ -199,16 +208,30 @@ struct Search: AsyncParsableCommand {
             .replacingOccurrences(of: "\n", with: " ")
     }
 
-    static func json(_ result: SearchResult) -> String {
-        let object: [String: Any] = [
-            "path": result.path, "kind": result.kind.rawValue, "size": result.size,
-            "modified": ISO8601DateFormatter().string(from: result.modified),
-            "matchedName": result.matchedName, "matchedContent": result.matchedContent,
-            "matchedMeaning": result.matchedMeaning, "score": result.score,
-            "snippet": result.snippet.map { $0.filter { $0 != SearchResult.highlightStart && $0 != SearchResult.highlightEnd } } as Any,
-        ]
-        let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
-        return String(decoding: data, as: UTF8.self)
+}
+
+// MARK: - mcp
+
+struct MCP: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "mcp",
+        abstract: "Serve the index to AI agents over the Model Context Protocol (stdio).",
+        discussion: """
+            Add to an MCP client as a stdio server, e.g. command "/Applications/Moria.app/Contents/Resources/moria" \
+            with argument "mcp". Tools: search, regex_search, index_status. Read-only.
+            """
+    )
+
+    @OptionGroup var database: DatabaseOption
+
+    func run() async throws {
+        let server = MCPServer(database: try database.open(), version: Moria.version)
+        // Only JSON-RPC goes to stdout; one message per line.
+        for try await line in FileHandle.standardInput.bytes.lines {
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty,
+                  let response = await server.handle(Data(line.utf8)) else { continue }
+            FileHandle.standardOutput.write(response + Data("\n".utf8))
+        }
     }
 }
 

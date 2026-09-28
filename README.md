@@ -42,7 +42,10 @@ moria search --regex 'INV-\d{4}-\d+'
 moria search --ask "pdf invoices from last spring"
 moria search "budget" --show          # open the results in the app
 moria index | watch | stats | config --set semanticSearchEnabled=true
+moria mcp                              # Model Context Protocol server for AI agents (stdio)
 ```
+
+`moria mcp` gives local AI agents (Claude, Cursor, …) read-only tools over the index: `search` (the query syntax, with names/contents modes and meaning), `regex_search` and `index_status`. Register it as a stdio server with the command `/Applications/Moria.app/Contents/Resources/moria` and the argument `mcp`.
 
 Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services › Search with Moria works on selected text and on Finder folders, and dropping a folder on a Moria window searches inside it.
 

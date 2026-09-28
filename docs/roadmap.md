@@ -17,8 +17,6 @@ are never edited.
   get their own column.
 - **Shortcuts actions.** App Intents for "Search Moria" and "Open search in Moria", on top of
   the `moria://` links and `SearchEngine`.
-- **MCP server in the CLI.** `moria mcp` serving read-only search over stdio, so local AI agents
-  can query the index. The CLI already has `search --json`; this adds the protocol.
 
 ## Significant
 

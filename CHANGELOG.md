@@ -23,3 +23,4 @@
 - Edit › Next Match and Previous Match (⌘G / ⇧⌘G) step through the matching lines in the preview.
 - Dropping a folder from Finder on a Moria window searches inside it.
 - Find Similar (with Meaning on): `similar:<file>` lists the documents closest in meaning to a file, narrowed by any filters or words; in the File menu, the action palette and result context menus, and in the CLI.
+- `moria mcp`: a Model Context Protocol server (stdio) with read-only `search`, `regex_search` and `index_status` tools for local AI agents.

@@ -375,17 +375,10 @@ final class SearchModel {
 
     private func query(for text: String, scope: SearchScope) -> SearchQuery {
         var query = QueryParser().parse(text)
-        // Phrases move too: left in `phrases`, they would match names in Contents and
-        // contents in Names.
         switch scope {
-        case .names:
-            query.nameTerms += query.terms + query.phrases
-            (query.terms, query.phrases) = ([], [])
-        case .contents:
-            query.contentTerms += query.terms + query.phrases
-            (query.terms, query.phrases) = ([], [])
-        case .everything, .regex:
-            break
+        case .names: query.restrictToNames()
+        case .contents: query.restrictToContents()
+        case .everything, .regex: break
         }
         filters.apply(to: &query)
         return query
