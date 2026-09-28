@@ -17,3 +17,4 @@
 - Undo (⌘Z) for Move to Trash puts the files back where they were and back in the index.
 - VoiceOver reads quick search and action palette rows as buttons, announces the row the arrow keys select, and opens or runs it on activation.
 - Folders added to the sidebar with Choose Folder… are kept across windows and launches; Locations have a context menu (Show in Finder, Remove from Sidebar).
+- Choose Folder… opens as a sheet on its window instead of blocking the whole app.

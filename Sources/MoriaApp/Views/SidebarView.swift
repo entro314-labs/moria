@@ -8,6 +8,7 @@ struct SidebarView: View {
     @Bindable var model: SearchModel
     @State private var renaming: SearchModel.SavedSearch?
     @State private var newName = ""
+    @State private var choosingFolder = false
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
@@ -66,12 +67,22 @@ struct SidebarView: View {
                             }
                         }
                 }
-                Button("Choose Folder…", systemImage: "plus") { chooseFolder() }
+                Button("Choose Folder…", systemImage: "plus") { choosingFolder = true }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
             }
         }
         .listStyle(.sidebar)
+        .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
+            switch result {
+            case let .success(url):
+                model.app.addCustomLocation(url.path)
+                model.sidebarSelection = .location(url.path)
+            case let .failure(error):
+                model.app.lastError = "The folder couldn't be added: \(error.localizedDescription)"
+            }
+        }
+        .fileDialogConfirmationLabel("Search Here")
         .onAppear { model.loadHome() }
         .onChange(of: model.app.savedSearches) { model.loadHome() }
         .alert("Rename Saved Search", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -106,15 +117,5 @@ struct SidebarView: View {
         case "Downloads": "arrow.down.circle"
         default: path == NSHomeDirectory() ? "person.crop.square" : "folder"
         }
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = "Search Here"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        model.app.addCustomLocation(url.path)
-        model.sidebarSelection = .location(url.path)
     }
 }

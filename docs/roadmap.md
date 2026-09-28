@@ -18,8 +18,6 @@ are never edited.
   context menu.
 - **Match stepping in the menu bar.** ⌘G / ⇧⌘G exist only as buttons in the inspector, so the
   menu bar doesn't show them.
-- **Folder picker as a sheet.** "Choose Folder…" runs an app-modal open panel; attach it to the
-  window.
 
 ## Nice to have
 
