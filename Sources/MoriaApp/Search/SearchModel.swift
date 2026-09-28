@@ -10,15 +10,6 @@ enum SearchScope: String, CaseIterable, Identifiable, Codable {
     case regex = "Regex"
 
     var id: String { rawValue }
-
-    var help: String {
-        switch self {
-        case .everything: "File names and contents"
-        case .names: "File and folder names only"
-        case .contents: "Text inside files only"
-        case .regex: "Regular expression over names and contents"
-        }
-    }
 }
 
 enum ResultSort: String, CaseIterable, Identifiable {

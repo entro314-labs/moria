@@ -435,7 +435,7 @@ public final class SearchEngine: Sendable {
 
     static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly, f.tags, f.taken, f.duration, f.author, f.labels"
 
-    static func result(from row: Row, name: Bool = false, content: Bool = false) -> SearchResult {
+    static func result(from row: Row, name: Bool = false) -> SearchResult {
         // Snippets are built on demand by `snippet(for:query:)`.
         SearchResult(
             id: row["id"], path: row["path"], name: row["name"], ext: row["ext"],
@@ -445,7 +445,7 @@ public final class SearchEngine: Sendable {
             taken: (row["taken"] as Double?).map { Date(timeIntervalSince1970: $0) }, duration: row["duration"], author: row["author"],
             labels: (row["labels"] as String?)?.components(separatedBy: ", ") ?? [],
             tags: FinderTags.names(fromStored: row["tags"]),
-            matchedName: name, matchedContent: content, matchedMeaning: false, meaningChunk: nil,
+            matchedName: name, matchedContent: false, matchedMeaning: false, meaningChunk: nil,
             snippet: nil, score: 0
         )
     }
