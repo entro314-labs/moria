@@ -222,6 +222,21 @@ final class SearchModel {
         if let text = request.text { self.text = text }
     }
 
+    /// Folders dropped on the window: searches inside the first one, as a Location does.
+    /// Returns false when nothing dropped is a folder.
+    func searchInside(_ urls: [URL]) -> Bool {
+        let folder = urls.first { url in
+            var isDirectory: ObjCBool = false
+            return url.isFileURL && FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+        guard let folder else { return false }
+        // The index keeps canonical paths (/private/tmp, not /tmp), as the watcher reports them.
+        guard let canonical = realpath(folder.path, nil) else { return false }
+        defer { free(canonical) }
+        filters.folder = String(cString: canonical)
+        return true
+    }
+
     /// The window's undo manager, for Move to Trash.
     weak var undoManager: UndoManager?
 

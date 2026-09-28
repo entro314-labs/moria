@@ -43,6 +43,8 @@ struct MainView: View {
                         .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
                 }
         }
+        // A folder dragged from Finder onto the window is searched inside.
+        .dropDestination(for: URL.self) { urls, _ in _ = model.searchInside(urls) }
         .searchable(text: $model.text, placement: .toolbarPrincipal, prompt: Text(model.prompt))
         .searchSuggestions {
             ForEach(model.suggestions) { suggestion in

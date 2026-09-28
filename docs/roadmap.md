@@ -9,8 +9,6 @@ are never edited.
 
 ## Nice to have
 
-- **Drop folders onto the window.** Dragging a folder from Finder onto the sidebar or results
-  searches inside it, like Services › Search in Folder with Moria does today.
 - **Finder tags.** A `tag:` filter, a Tags column and a tag criterion. Needs tags stored per file
   (migration) and a check that tag changes reach the index through FSEvents.
 - **More like this.** With Meaning on, find documents close to a selected result. The vectors

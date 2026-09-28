@@ -43,7 +43,7 @@ moria search "budget" --show          # open the results in the app
 moria index | watch | stats | config --set semanticSearchEnabled=true
 ```
 
-Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services › Search with Moria works on selected text and on Finder folders.
+Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services › Search with Moria works on selected text and on Finder folders, and dropping a folder on a Moria window searches inside it.
 
 ## Privacy and footprint
 

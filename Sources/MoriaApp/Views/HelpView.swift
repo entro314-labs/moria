@@ -65,6 +65,8 @@ struct HelpView: View {
                 ("⌘K", "Actions for the selection"),
                 ("⌘C / ⌥⌘C", "Copy files / copy paths"),
                 ("⌘⌫", "Move to Trash"),
+                ("⌘Z", "Undo Move to Trash, or deleting a saved search"),
+                ("⌘G / ⇧⌘G", "Next / previous matching line in the preview"),
                 ("⌘1 … ⌘5", "Everything, Names, Contents, Regex, Ask (when turned on)"),
                 ("⇧⌘M", "Search by meaning (when turned on)"),
                 ("⌘S", "Save search"),
@@ -85,6 +87,7 @@ struct HelpView: View {
             paragraph("**Meaning** also finds documents related to your words even when the exact words don't appear, and shows the closest passage. It covers documents, PDFs, notes and recognized text in Latin-script languages.")
         case .integration:
             paragraph("**Services:** select text in any app, or a folder in Finder, and choose Services › Search with Moria (or Search in Folder with Moria).")
+            paragraph("**Drag and drop:** drop a folder from Finder on a Moria window to search inside it. Drag results out to Finder or any app.")
             paragraph("**Links:** `moria://search?q=invoice%20ext:pdf&scope=contents` opens a search. Scopes: everything, names, contents, regex.")
             paragraph("**Command line:** the `moria` tool in Moria.app/Contents/Resources shares the app's index: `moria search \"lease\" --json`, `moria search --regex 'INV-\\d+'`, `moria stats`. Add `--show` to open the results in the app.")
         }
