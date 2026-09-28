@@ -390,6 +390,21 @@ struct IndexTests {
         #expect(try await cache.index(for: database, now: start.addingTimeInterval(61)).version == first.version + 1)
     }
 
+    /// A rebuild empties the vectors and file ids start over, so the vectors held in memory
+    /// would name other files: the cache must reload at its next chance.
+    @Test func rebuildingForgetsTheCachedVectors() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let id = try await database.pool.read { db in try Int64.fetchOne(db, sql: "SELECT id FROM file WHERE isDir = 0 LIMIT 1")! }
+        try database.storeEmbeddings([(id, [(0, [1, 0])])])
+        let cache = VectorCache()
+        let start = Date()
+        #expect(try await !cache.index(for: database, now: start).isEmpty)
+        await controller.rebuild()
+        try await controller.indexNow(full: false)  // the erase runs here
+        #expect(try await cache.index(for: database, now: start.addingTimeInterval(61)).isEmpty)
+    }
+
     @Test func vectorIndexRanksByBestChunk() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

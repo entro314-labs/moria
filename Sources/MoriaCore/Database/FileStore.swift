@@ -339,7 +339,8 @@ extension IndexDatabase {
         }
     }
 
-    /// Removes every indexed entry (settings are kept).
+    /// Removes every indexed entry (settings are kept). The vectors go too, so the in-memory
+    /// index is told to reload: file ids start over, and cached vectors would name other files.
     func eraseIndex() throws {
         try pool.write { db in
             // Empty the FTS tables in one step so the per-row delete trigger has nothing to do.
@@ -351,6 +352,7 @@ extension IndexDatabase {
                 DELETE FROM file; DELETE FROM dir;
                 DELETE FROM meta WHERE key LIKE 'scan.%' OR key LIKE 'fsevents.%';
                 """)
+            try Self.bumpEmbeddingsVersion(db)
         }
         try pool.writeWithoutTransaction { db in try db.execute(sql: "VACUUM") }
     }
