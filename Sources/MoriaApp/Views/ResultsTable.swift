@@ -113,6 +113,16 @@ struct ResultsTable: NSViewRepresentable {
 
         init(model: SearchModel) {
             self.model = model
+            super.init()
+            // Match labels are drawn differently with Increase Contrast (see `ResultCell.capsule`).
+            NSWorkspace.shared.notificationCenter.addObserver(
+                self, selector: #selector(displayOptionsChanged),
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil
+            )
+        }
+
+        @objc private func displayOptionsChanged() {
+            table?.reloadData()
         }
 
         func update(model: SearchModel) {
@@ -476,9 +486,17 @@ final class ResultCell: NSTableCellView {
                 guard let field = capsule.subviews.first as? NSTextField, let label = capsule.identifier.map(\.rawValue) else { continue }
                 let color = emphasized ? NSColor.white : MatchLabel.color(named: label)
                 field.textColor = color
-                capsule.layer?.backgroundColor = color.withAlphaComponent(emphasized ? 0.22 : 0.14).cgColor
+                Self.style(capsule, color: color, emphasized: emphasized)
             }
         }
+    }
+
+    /// Tinted fill; with Increase Contrast, a stronger fill and a solid outline (as `ChipBackground`).
+    private static func style(_ capsule: NSView, color: NSColor, emphasized: Bool) {
+        let increased = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        capsule.layer?.backgroundColor = color.withAlphaComponent(emphasized || increased ? 0.24 : 0.14).cgColor
+        capsule.layer?.borderWidth = increased ? 1 : 0
+        capsule.layer?.borderColor = color.cgColor
     }
 
     private static func capsule(_ label: MatchLabel) -> NSView {
@@ -489,7 +507,7 @@ final class ResultCell: NSTableCellView {
         let container = NSView()
         container.identifier = NSUserInterfaceItemIdentifier(label.colorName)
         container.wantsLayer = true
-        container.layer?.backgroundColor = label.color.withAlphaComponent(0.14).cgColor
+        style(container, color: label.color, emphasized: false)
         container.layer?.cornerRadius = 7
         container.layer?.cornerCurve = .continuous
         field.translatesAutoresizingMaskIntoConstraints = false

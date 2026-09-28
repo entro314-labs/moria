@@ -9,11 +9,6 @@ are never edited.
 
 ## Polish
 
-- **Reduce Motion.** The action palette scales in (`MainView`) and match stepping scrolls with
-  animation (`InspectorView`); both should fade or jump when Reduce Motion is on.
-- **Increase Contrast.** Filter chips (14% tint, 25% dashed border) and match labels (14%
-  capsules in `ResultsTable` and `InspectorView`) need stronger variants when Increase Contrast
-  is on.
 - **Saved searches: Delete key and undo.** Deleting is permanent and only reachable from the
   context menu.
 - **Match stepping in the menu bar.** ⌘G / ⇧⌘G exist only as buttons in the inspector, so the

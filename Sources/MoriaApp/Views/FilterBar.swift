@@ -231,7 +231,7 @@ private struct FilterMenus: View {
                 .padding(.horizontal, 6)
                 .help("Remove this filter")
         }
-        .background(.tint.opacity(0.14), in: Capsule())
+        .chipBackground(.tint)
         .foregroundStyle(.tint)
     }
 }
@@ -258,13 +258,39 @@ private struct ActiveChip: View {
         .padding(.trailing, 6)
         .padding(.vertical, 3)
         .foregroundStyle(chip.isExclusion ? AnyShapeStyle(.orange) : AnyShapeStyle(.tint))
-        .background(chip.isExclusion ? AnyShapeStyle(.orange.opacity(0.14)) : AnyShapeStyle(.tint.opacity(0.14)), in: Capsule())
-        .overlay(Capsule().strokeBorder(.tint.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+        .chipBackground(chip.isExclusion ? AnyShapeStyle(.orange) : AnyShapeStyle(.tint), dashed: true)
         .onHover { hovering = $0 }
         .help("Typed in the query")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Filter: \(chip.label)")
         .accessibilityAction(named: "Remove", remove)
+    }
+}
+
+/// The tinted capsule behind chips and match labels. With Increase Contrast on, the fill is
+/// stronger and the outline solid.
+struct ChipBackground<Style: ShapeStyle>: ViewModifier {
+    let style: Style
+    /// Dashed outline: a filter typed in the query rather than chosen in the bar.
+    var dashed = false
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let increased = contrast == .increased
+        content
+            .background(style.opacity(increased ? 0.24 : 0.14), in: Capsule())
+            .overlay {
+                if increased || dashed {
+                    Capsule().strokeBorder(style.opacity(increased ? 1 : 0.25),
+                                           style: StrokeStyle(lineWidth: 1, dash: dashed ? [3, 2] : []))
+                }
+            }
+    }
+}
+
+extension View {
+    func chipBackground(_ style: some ShapeStyle, dashed: Bool = false) -> some View {
+        modifier(ChipBackground(style: style, dashed: dashed))
     }
 }
 

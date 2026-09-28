@@ -18,3 +18,4 @@
 - VoiceOver reads quick search and action palette rows as buttons, announces the row the arrow keys select, and opens or runs it on activation.
 - Folders added to the sidebar with Choose Folder… are kept across windows and launches; Locations have a context menu (Show in Finder, Remove from Sidebar).
 - Choose Folder… opens as a sheet on its window instead of blocking the whole app.
+- Reduce Motion: the action palette fades in and match stepping jumps instead of scrolling. Increase Contrast: filter chips and match labels get a stronger fill and a solid outline.

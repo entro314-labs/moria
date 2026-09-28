@@ -11,6 +11,7 @@ struct MainView: View {
     @State private var window: NSWindow?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSyntax = false
     @State private var saveName = ""
     @FocusState private var searchFocused: Bool
@@ -32,7 +33,7 @@ struct MainView: View {
                     if model.showActions, !model.selection.isEmpty {
                         ActionPalette(model: model) { model.showActions = false }
                             .padding(.top, 60)
-                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.96).combined(with: .opacity))
                     }
                 }
                 .animation(.snappy(duration: 0.18), value: model.showActions)

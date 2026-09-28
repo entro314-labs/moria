@@ -98,6 +98,7 @@ private struct InfoPane: View {
     let model: SearchModel
     let item: ResultItem
     @State private var currentMatch = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var facts: [(String, String)] = []
 
     private var result: SearchResult { item.result }
@@ -146,7 +147,7 @@ private struct InfoPane: View {
                             .foregroundStyle(Color(nsColor: label.color))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
-                            .background(Color(nsColor: label.color).opacity(0.14), in: Capsule())
+                            .chipBackground(Color(nsColor: label.color))
                     }
                 }
             }
@@ -239,7 +240,7 @@ private struct InfoPane: View {
     private func step(_ delta: Int, _ count: Int, _ proxy: ScrollViewProxy) {
         guard count > 0 else { return }
         currentMatch = (currentMatch + delta + count) % count
-        withAnimation { proxy.scrollTo(currentMatch, anchor: .center) }
+        withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(currentMatch, anchor: .center) }
     }
 
     private var details: some View {

@@ -109,7 +109,7 @@ struct QuickPanelView: View {
                             .font(.caption)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(.tint.opacity(0.14), in: Capsule())
+                            .chipBackground(.tint)
                     }
                     Spacer()
                 }
