@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import ImageIO
+import Vision
 
 /// Details read from a photo, recording, PDF or document, for the `taken:`, `duration:` and
 /// `author:` filters.
@@ -11,6 +12,8 @@ struct MediaDetails: Sendable, Equatable {
     var duration: Double?
     /// A PDF's or document's author.
     var author: String?
+    /// What a photo shows ("beach", "screenshot").
+    var labels: [String] = []
 }
 
 /// Reads `MediaDetails` from the headers of a file, never its whole contents. Failures leave the
@@ -18,18 +21,22 @@ struct MediaDetails: Sendable, Equatable {
 enum MediaReader {
     static let kinds: Set<FileKind> = [.image, .audio, .video, .pdf, .document]
 
-    static func read(path: String, ext: String, kind: FileKind) async -> MediaDetails {
-        let url = URL(fileURLWithPath: path)
+    /// Details of `file`; with `labels`, also what a photo shows.
+    static func read(_ file: PendingFile, labels: Bool, home: String = NSHomeDirectory()) async -> MediaDetails {
+        let url = URL(fileURLWithPath: file.path)
         var details = MediaDetails()
-        switch kind {
+        switch file.kind {
         case .image:
             details.taken = dateTaken(url)
+            if labels, ContentExtractor.isWorthRecognizing(url, path: file.path, size: file.size, home: home) {
+                details.labels = await Self.labels(url)
+            }
         case .audio, .video:
             details.duration = await duration(url)
         case .pdf:
             details.author = pdfAuthor(url)
         case .document:
-            details.author = await documentAuthor(url, ext: ext)
+            details.author = await documentAuthor(url, ext: file.ext)
         case .folder, .application, .package, .archive, .text, .code, .other:
             break
         }
@@ -65,6 +72,17 @@ enum MediaReader {
         let parts = offset.dropFirst().split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2, let sign = offset.first, sign == "+" || sign == "-" else { return nil }
         return TimeZone(secondsFromGMT: (sign == "-" ? -1 : 1) * (parts[0] * 3600 + parts[1] * 60))
+    }
+
+    /// Vision's classifications that are right at least 90% of the time (Apple's suggested
+    /// high-precision cut), as words: "consumer_electronics" becomes "consumer electronics".
+    private static func labels(_ url: URL) async -> [String] {
+        guard let observations = try? await ClassifyImageRequest().perform(on: url) else { return [] }
+        return observations
+            .filter { $0.hasMinimumRecall(0.01, forPrecision: 0.9) }
+            .sorted { $0.confidence > $1.confidence }
+            .prefix(10)
+            .map { $0.identifier.replacingOccurrences(of: "_", with: " ") }
     }
 
     // MARK: - Audio and video

@@ -124,6 +124,8 @@ private struct ContentSettings: View {
             Section {
                 Toggle("Recognize text in images", isOn: binding(\.ocrImages))
                 Toggle("Recognize text in scanned PDFs", isOn: binding(\.ocrScannedPDFs))
+                Toggle("Recognize what photos show", isOn: binding(\.imageLabels))
+                    .help("Words like “beach”, “receipt” or “dog” find the photos that show them.")
                 Toggle("Read files inside hidden folders", isOn: binding(\.extractHiddenContent))
                 Stepper("Text kept per file: \(app.settings.maxContentKilobytes) KB",
                         value: intBinding(\.maxContentKilobytes), in: 32...4096, step: 32)
@@ -147,6 +149,7 @@ private struct ContentSettings: View {
                         $0.maxFileMegabytes = defaults.maxFileMegabytes
                         $0.ocrImages = defaults.ocrImages
                         $0.ocrScannedPDFs = defaults.ocrScannedPDFs
+                        $0.imageLabels = defaults.imageLabels
                     }
                 }
                 .controlSize(.small)

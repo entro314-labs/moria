@@ -19,12 +19,16 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var taken: Date?
     public var duration: Double?
     public var author: String?
+    /// What a photo shows, as recognized ("beach", "screenshot").
+    public var labels: [String] = []
     /// Finder tag names.
     public var tags: [String] = []
     /// Why it matched.
     public var matchedName: Bool
     public var matchedContent: Bool
     public var matchedMeaning: Bool
+    /// The words describe what the photo shows (its labels).
+    public var matchedLabel = false
     /// For meaning matches: which embedded chunk of the document was closest.
     public var meaningChunk: Int?
     /// Content excerpt, filled by `SearchEngine.snippet(for:query:)`; matched spans are wrapped
@@ -76,6 +80,7 @@ public final class SearchEngine: Sendable {
     static let fusionK = 60.0
     static let nameWeight = 1.5
     static let contentWeight = 1.0
+    static let labelWeight = 0.8
     static let semanticWeight = 0.9
 
     public enum SearchError: Error, CustomStringConvertible, LocalizedError {
@@ -115,14 +120,24 @@ public final class SearchEngine: Sendable {
         guard query.hasTextCriteria else {
             return try filterOnly(query, limit: limit)
         }
-        let (nameHits, contentHits) = try await database.pool.read { db in
-            (try self.nameMatches(query, db: db, limit: limit), try self.contentMatches(query, db: db, limit: limit))
+        let (nameHits, contentHits, labelHits) = try await database.pool.read { db in
+            (try self.nameMatches(query, db: db, limit: limit),
+             try self.textMatches(query, in: "content_fts", db: db, limit: limit).map { hit in
+                 var hit = hit
+                 hit.matchedContent = true
+                 return hit
+             },
+             try self.textMatches(query, in: "label_fts", db: db, limit: limit).map { hit in
+                 var hit = hit
+                 hit.matchedLabel = true
+                 return hit
+             })
         }
         var semanticHits: [(fileID: Int64, chunk: Int)] = []
         if semantic, !query.semanticText.isEmpty {
             semanticHits = try await semanticMatches(query, limit: 200)
         }
-        return try fuse(query: query, names: nameHits, contents: contentHits, semantic: semanticHits, limit: limit)
+        return try fuse(query: query, names: nameHits, contents: contentHits, labels: labelHits, semantic: semanticHits, limit: limit)
     }
 
     // MARK: - Candidate lists
@@ -157,7 +172,8 @@ public final class SearchEngine: Sendable {
             """, arguments: [match] + filter.arguments + [limit]).map { Self.result(from: $0, name: true) }
     }
 
-    private func contentMatches(_ query: SearchQuery, db: Database, limit: Int) throws -> [SearchResult] {
+    /// Files whose text (`content_fts`) or photo labels (`label_fts`) contain the words.
+    private func textMatches(_ query: SearchQuery, in table: String, db: Database, limit: Int) throws -> [SearchResult] {
         // A single letter says nothing about contents and matches most documents.
         var parts = (query.terms.filter { $0.count > 1 } + query.contentTerms).compactMap(Self.contentTerm)
         parts += query.phrases.map(Self.quote)
@@ -172,12 +188,12 @@ public final class SearchEngine: Sendable {
             }
         }
         return try Row.fetchAll(db, sql: """
-            SELECT \(Self.columns), content_fts.rank AS rank
-            FROM content_fts JOIN file f ON f.id = content_fts.rowid JOIN dir d ON d.id = f.dirId
-            WHERE content_fts MATCH ? AND \(filter.clause)
-            ORDER BY content_fts.rank LIMIT ?
+            SELECT \(Self.columns), \(table).rank AS rank
+            FROM \(table) JOIN file f ON f.id = \(table).rowid JOIN dir d ON d.id = f.dirId
+            WHERE \(table) MATCH ? AND \(filter.clause)
+            ORDER BY \(table).rank LIMIT ?
             """, arguments: [parts.joined(separator: " AND ")] + filter.arguments + [limit]
-        ).map { Self.result(from: $0, content: true) }
+        ).map { Self.result(from: $0) }
     }
 
     private func semanticMatches(_ query: SearchQuery, limit: Int) async throws -> [(fileID: Int64, chunk: Int)] {
@@ -260,7 +276,8 @@ public final class SearchEngine: Sendable {
     // MARK: - Fusion
 
     private func fuse(
-        query: SearchQuery, names: [SearchResult], contents: [SearchResult], semantic: [(fileID: Int64, chunk: Int)], limit: Int
+        query: SearchQuery, names: [SearchResult], contents: [SearchResult], labels: [SearchResult],
+        semantic: [(fileID: Int64, chunk: Int)], limit: Int
     ) throws -> [SearchResult] {
         var byID: [Int64: SearchResult] = [:]
         func add(_ hit: SearchResult, rank: Int, weight: Double) {
@@ -269,6 +286,7 @@ public final class SearchEngine: Sendable {
                 existing.score += contribution
                 existing.matchedName = existing.matchedName || hit.matchedName
                 existing.matchedContent = existing.matchedContent || hit.matchedContent
+                existing.matchedLabel = existing.matchedLabel || hit.matchedLabel
                 byID[hit.id] = existing
             } else {
                 var hit = hit
@@ -282,6 +300,9 @@ public final class SearchEngine: Sendable {
         }
         for (rank, hit) in contents.enumerated() {
             add(hit, rank: rank, weight: Self.contentWeight)
+        }
+        for (rank, hit) in labels.enumerated() {
+            add(hit, rank: rank, weight: Self.labelWeight)
         }
         if !semantic.isEmpty {
             let rows = try fetch(ids: semantic.map(\.fileID), query: query)
@@ -363,7 +384,13 @@ public final class SearchEngine: Sendable {
     /// Why a result matched in its contents: an excerpt, the number of matching lines, and the
     /// lines themselves (for the preview). For meaning-only matches, the closest passage.
     public func details(for result: SearchResult, query: SearchQuery) async throws -> MatchDetails? {
-        guard result.matchedContent || result.matchedMeaning, !result.isDirectory, !result.isCloudOnly else { return nil }
+        guard result.matchedContent || result.matchedMeaning || result.matchedLabel, !result.isDirectory, !result.isCloudOnly else { return nil }
+        if result.matchedLabel, !result.matchedContent, !result.matchedMeaning {
+            // Only what the photo shows matched: the labels are the excerpt.
+            let terms = query.terms + query.contentTerms + query.phrases
+            return MatchDetails(snippet: Snippet.make(from: "Shows " + result.labels.joined(separator: ", "), terms: terms),
+                                matchCount: 0, lines: [], passage: nil)
+        }
         let text: String?
         if ContentExtractor.keepsExtractedText(result.kind) {
             text = try await database.pool.read { db in
@@ -393,7 +420,7 @@ public final class SearchEngine: Sendable {
 
     // MARK: - SQL helpers
 
-    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly, f.tags, f.taken, f.duration, f.author"
+    static let columns = "f.id, \(IndexDatabase.pathSQL) AS path, f.name, f.ext, f.kind, f.isDir, f.size, f.mtime, f.btime, f.isCloudOnly, f.tags, f.taken, f.duration, f.author, f.labels"
 
     static func result(from row: Row, name: Bool = false, content: Bool = false) -> SearchResult {
         // Snippets are built on demand by `snippet(for:query:)`.
@@ -403,6 +430,7 @@ public final class SearchEngine: Sendable {
             modified: Date(timeIntervalSince1970: row["mtime"]), created: Date(timeIntervalSince1970: row["btime"]),
             isCloudOnly: row["isCloudOnly"],
             taken: (row["taken"] as Double?).map { Date(timeIntervalSince1970: $0) }, duration: row["duration"], author: row["author"],
+            labels: (row["labels"] as String?)?.components(separatedBy: ", ") ?? [],
             tags: FinderTags.names(fromStored: row["tags"]),
             matchedName: name, matchedContent: content, matchedMeaning: false, meaningChunk: nil,
             snippet: nil, score: 0
@@ -483,6 +511,7 @@ struct FilterSQL {
             add("moria_fold(f.name) NOT LIKE ? ESCAPE '\\'", "%" + SearchEngine.escapeLike(term.searchFolded) + "%")
             if let match = SearchEngine.contentTerm(term) {
                 add("f.id NOT IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)", match)
+                add("f.id NOT IN (SELECT rowid FROM label_fts WHERE label_fts MATCH ?)", match)
             }
         }
         if !query.excludedKinds.isEmpty {

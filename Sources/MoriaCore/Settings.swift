@@ -26,6 +26,8 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
     public var maxFileMegabytes: Int
     public var ocrImages: Bool
     public var ocrScannedPDFs: Bool
+    /// Recognizes what photos show ("beach", "receipt") so those words find them.
+    public var imageLabels: Bool
     /// Builds sentence embeddings for documents and enables semantic ranking.
     public var semanticSearchEnabled: Bool
     /// Lets the on-device language model turn plain-language requests into filters.
@@ -59,6 +61,7 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
             maxFileMegabytes: 100,
             ocrImages: true,
             ocrScannedPDFs: true,
+            imageLabels: true,
             semanticSearchEnabled: false,
             naturalLanguageQueriesEnabled: false
         )
@@ -86,6 +89,7 @@ extension MoriaSettings {
         maxFileMegabytes = try value(.maxFileMegabytes, defaults.maxFileMegabytes)
         ocrImages = try value(.ocrImages, defaults.ocrImages)
         ocrScannedPDFs = try value(.ocrScannedPDFs, defaults.ocrScannedPDFs)
+        imageLabels = try value(.imageLabels, defaults.imageLabels)
         semanticSearchEnabled = try value(.semanticSearchEnabled, defaults.semanticSearchEnabled)
         naturalLanguageQueriesEnabled = try value(.naturalLanguageQueriesEnabled, defaults.naturalLanguageQueriesEnabled)
     }

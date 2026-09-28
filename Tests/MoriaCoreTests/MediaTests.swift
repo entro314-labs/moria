@@ -113,4 +113,33 @@ struct MediaTests {
         #expect(MediaReader.exifDate("2024:07:15 18:22:01", offset: nil, timeZone: athens) == Date(timeIntervalSince1970: 1_721_056_921))
         #expect(MediaReader.exifDate("not a date", offset: nil) == nil)
     }
+
+    @Test func photosAreFoundByWhatTheyShow() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+        // What Vision recognizes depends on the photo; the test photo is a plain color, so its
+        // labels are stored as the details pass would store them.
+        let photo = try #require(try await engine.search(QueryParser(home: root.path).parse("name:beach.jpg")).first)
+        #expect(photo.labels == [])  // 64×48: too small to be worth recognizing
+        try await database.pool.write { db in try db.execute(sql: "UPDATE file SET mediaState = 0 WHERE id = ?", arguments: [photo.id]) }
+        try database.storeMedia([(photo.id, photo.modified.timeIntervalSince1970, MediaDetails(labels: ["beach", "sea", "sky"]))])
+
+        let hit = try #require(try await engine.search(QueryParser(home: root.path).parse("sea")).first)
+        #expect(hit.name == "beach.jpg" && hit.matchedLabel && !hit.matchedContent)
+        #expect(hit.labels == ["beach", "sea", "sky"])
+        #expect(try await engine.snippet(for: hit, query: QueryParser().parse("sea")) == "Shows beach, \u{1}sea\u{2}, sky")
+        #expect(try await search(engine, "sky -sea").isEmpty)
+        #expect(try await search(engine, "content:sky") == ["beach.jpg"])
+        #expect(try await search(engine, "name:sky").isEmpty)
+
+        // Turned off, labels are forgotten; turned on, photos are queued to be read again.
+        var settings = await controller.settings
+        settings.imageLabels = false
+        try await controller.updateSettings(settings)
+        #expect(try await search(engine, "sea").isEmpty)
+        settings.imageLabels = true
+        try await controller.updateSettings(settings)
+        #expect(try database.pendingMediaCount() == 1)
+    }
 }

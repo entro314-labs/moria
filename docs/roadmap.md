@@ -9,10 +9,6 @@ are never edited.
 
 ## Nice to have
 
-- **Labels for photos.** Vision's image classification (the SDK has `VNClassifyImageRequest`)
-  turns photos into searchable words ("beach", "receipt", "dog"), next to the text already
-  recognized in images. A setting beside OCR; decide whether labels share the content index or
-  get their own column.
 - **Shortcuts actions.** App Intents for "Search Moria" and "Open search in Moria", on top of
   the `moria://` links and `SearchEngine`.
 

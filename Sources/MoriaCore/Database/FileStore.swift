@@ -253,11 +253,17 @@ extension IndexDatabase {
     func storeMedia(_ results: [(id: Int64, mtime: Double, details: MediaDetails)]) throws {
         try pool.write { db in
             let update = try db.cachedStatement(sql: """
-                UPDATE file SET mediaState = 1, taken = ?, duration = ?, author = ?
+                UPDATE file SET mediaState = 1, taken = ?, duration = ?, author = ?, labels = ?
                 WHERE id = ? AND mtime = ? AND mediaState = 0
                 """)
+            let deleteLabels = try db.cachedStatement(sql: "DELETE FROM label_fts WHERE rowid = ?")
+            let insertLabels = try db.cachedStatement(sql: "INSERT INTO label_fts(rowid, labels) VALUES (?, ?)")
             for (id, mtime, details) in results {
-                try update.execute(arguments: [details.taken?.timeIntervalSince1970, details.duration, details.author, id, mtime])
+                let labels = details.labels.isEmpty ? nil : details.labels.joined(separator: ", ")
+                try update.execute(arguments: [details.taken?.timeIntervalSince1970, details.duration, details.author, labels, id, mtime])
+                guard db.changesCount == 1 else { continue }
+                try deleteLabels.execute(arguments: [id])
+                if let labels { try insertLabels.execute(arguments: [id, labels]) }
             }
         }
     }
@@ -276,6 +282,28 @@ extension IndexDatabase {
                   AND contentState NOT IN (4, 5, 7) AND mediaState = 2
                 """)
             try db.execute(sql: "INSERT OR REPLACE INTO meta(key, value) VALUES ('media.backfilled', '1')")
+        }
+    }
+
+    /// Photos read before labels existed are read again, once.
+    func backfillLabelsIfNeeded() throws {
+        guard try meta("labels.backfilled") == nil else { return }
+        try requeueLabels()
+        try setMeta("labels.backfilled", "1")
+    }
+
+    /// Queues photos to be read again (labels were turned on).
+    func requeueLabels() throws {
+        try pool.write { db in try db.execute(sql: "UPDATE file SET mediaState = 0 WHERE kind = 'image' AND mediaState = 1") }
+    }
+
+    /// Forgets every label (labels were turned off).
+    func clearLabels() throws {
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO label_fts(label_fts) VALUES ('delete-all');
+                UPDATE file SET labels = NULL WHERE labels IS NOT NULL;
+                """)
         }
     }
 
@@ -308,6 +336,7 @@ extension IndexDatabase {
             try db.execute(sql: """
                 INSERT INTO name_fts(name_fts) VALUES ('delete-all');
                 INSERT INTO content_fts(content_fts) VALUES ('delete-all');
+                INSERT INTO label_fts(label_fts) VALUES ('delete-all');
                 DELETE FROM doc_text; DELETE FROM chunk_vec;
                 DELETE FROM file; DELETE FROM dir;
                 DELETE FROM meta WHERE key LIKE 'scan.%' OR key LIKE 'fsevents.%';

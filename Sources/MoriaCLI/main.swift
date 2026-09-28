@@ -173,7 +173,8 @@ struct Search: AsyncParsableCommand {
             if json {
                 print(try ResultRecord(result, snippet: result.snippet).json)
             } else {
-                let why = [result.matchedName ? "name" : nil, result.matchedContent ? "content" : nil, result.matchedMeaning ? "meaning" : nil]
+                let why = [result.matchedName ? "name" : nil, result.matchedContent ? "content" : nil,
+                           result.matchedLabel ? "picture" : nil, result.matchedMeaning ? "meaning" : nil]
                     .compactMap { $0 }.joined(separator: "+")
                 print("\(result.path)  [\(why)]")
                 if let snippet = result.snippet {
@@ -307,6 +308,7 @@ struct Config: AsyncParsableCommand {
         case "maxFileMegabytes": settings.maxFileMegabytes = try int()
         case "ocrImages": settings.ocrImages = try bool()
         case "ocrScannedPDFs": settings.ocrScannedPDFs = try bool()
+        case "imageLabels": settings.imageLabels = try bool()
         case "semanticSearchEnabled": settings.semanticSearchEnabled = try bool()
         case "naturalLanguageQueriesEnabled": settings.naturalLanguageQueriesEnabled = try bool()
         default: throw ValidationError("Unknown setting \(key)")

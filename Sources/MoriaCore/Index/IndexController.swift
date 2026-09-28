@@ -136,6 +136,7 @@ public actor IndexController {
         }
         while try await extractBatch() {}
         try database.backfillMediaIfNeeded()
+        try database.backfillLabelsIfNeeded()
         while try await mediaBatch() {}
         if settings.semanticSearchEnabled {
             while try await embedBatch() {}
@@ -177,6 +178,9 @@ public actor IndexController {
             try database.requeueContent()
         } else if !requeueKinds.isEmpty {
             try database.requeueContent(kinds: requeueKinds)
+        }
+        if old.imageLabels != new.imageLabels {
+            try new.imageLabels ? database.requeueLabels() : database.clearLabels()
         }
         if old.semanticSearchEnabled, !new.semanticSearchEnabled {
             try database.clearEmbeddings()
@@ -227,6 +231,7 @@ public actor IndexController {
         do {
             try reloadSettings()
             try database.backfillMediaIfNeeded()
+            try database.backfillLabelsIfNeeded()
         } catch {
             state.lastError = String(describing: error)
         }
@@ -538,13 +543,14 @@ public actor IndexController {
         guard !batch.isEmpty else { return false }
         publish(phase: .readingDetails)
         let width = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
+        let labels = settings.imageLabels
         let results = try await withThrowingTaskGroup(of: (id: Int64, mtime: Double, details: MediaDetails).self) { group in
             var iterator = batch.makeIterator()
             func addNext() {
                 guard let file = iterator.next() else { return }
                 group.addTask {
                     try Task.checkCancellation()
-                    return (file.id, file.mtime, await MediaReader.read(path: file.path, ext: file.ext, kind: file.kind))
+                    return (file.id, file.mtime, await MediaReader.read(file, labels: labels))
                 }
             }
             for _ in 0..<width { addNext() }

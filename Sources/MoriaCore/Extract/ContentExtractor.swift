@@ -187,21 +187,22 @@ struct ContentExtractor: Sendable {
 
     private func ocrImageIfEligible(_ url: URL, path: String, size: Int64) async throws -> String? {
         // Icons and UI assets are small; photos of receipts, scans and screenshots are not.
-        guard ocrImages, isUserLocation(path), size >= Self.minOCRBytes else { return nil }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              min(width, height) >= Self.minOCRSide
-        else { return nil }
+        guard ocrImages, Self.isWorthRecognizing(url, path: path, size: size, home: home) else { return nil }
         return try await ocrLimiter.run { try await OCR.recognize(url) }
     }
 
-    /// OCR is skipped for images under `~/Library` and hidden folders: those are app assets
-    /// and icons, and OCR costs ~100 ms per image.
-    private func isUserLocation(_ path: String) -> Bool {
-        if path.hasPrefix(home + "/Library/") { return false }
-        return !path.split(separator: "/").contains { $0.hasPrefix(".") }
+    /// Whether an image is a photo, scan or screenshot rather than an icon or app asset, so
+    /// recognizing its text or subject (~100 ms each) is worth it: not under `~/Library` or in a
+    /// hidden folder, and large enough.
+    static func isWorthRecognizing(_ url: URL, path: String, size: Int64, home: String) -> Bool {
+        guard !path.hasPrefix(home + "/Library/"), !path.split(separator: "/").contains(where: { $0.hasPrefix(".") }),
+              size >= minOCRBytes,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { return false }
+        return min(width, height) >= minOCRSide
     }
 }
 

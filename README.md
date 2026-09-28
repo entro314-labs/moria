@@ -3,7 +3,7 @@
 Deep search for macOS: every file name, the text inside documents, PDFs, code and images, regular expressions, and (optionally) meaning — from its own index, so it finds what Spotlight skips.
 
 - **Everything by name** — every file and folder under your locations, including hidden files, app data and cloud folders. Cloud-only files are indexed by name and never downloaded.
-- **Contents** — plain text and code, PDFs (scanned pages via text recognition), Word, RTF, OpenDocument, PowerPoint, Excel, EPUB, HTML, email files, and text in screenshots and photos. Accent- and case-insensitive in every script, with English, Greek and Russian stemming (a search for one form of a word finds the others).
+- **Contents** — plain text and code, PDFs (scanned pages via text recognition), Word, RTF, OpenDocument, PowerPoint, Excel, EPUB, HTML, email files, and text in screenshots and photos. Photos are also found by what they show (“beach”, “document”), recognized on this Mac. Accent- and case-insensitive in every script, with English, Greek and Russian stemming (a search for one form of a word finds the others).
 - **Regex** over names, contents and extracted document text (bundled ripgrep).
 - **Live** — follows filesystem events and catches up on changes made while it wasn't running.
 - **External drives** — locations on external drives and network volumes stay searchable while ejected (marked Offline) and are read again when they return.

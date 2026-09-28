@@ -580,6 +580,10 @@ struct MatchLabel: Hashable {
                                      help: count > 1 ? "\(count) matching lines" : "The text inside matches",
                                      colorName: "blue"))
         }
+        if result.matchedLabel {
+            labels.append(MatchLabel(text: "In picture", help: "The picture shows " + result.labels.joined(separator: ", "),
+                                     colorName: "blue"))
+        }
         if result.matchedMeaning {
             labels.append(MatchLabel(text: "Meaning", help: "Related in meaning to your words", colorName: "purple"))
         }

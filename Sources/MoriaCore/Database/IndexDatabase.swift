@@ -197,6 +197,32 @@ public final class IndexDatabase: Sendable {
                 END;
                 """)
         }
+        // What photos show, recognized with the details pass: kept in `file.labels` ("beach,
+        // sea") for display and in their own contentless index, whose rows follow the details'
+        // lifecycle rather than the content's. Photos whose details were already read are read
+        // again once (`labels.backfilled`).
+        migrator.registerMigration("v6-labels") { db in
+            try db.execute(sql: """
+                ALTER TABLE file ADD COLUMN labels TEXT;
+                CREATE VIRTUAL TABLE label_fts USING fts5(
+                    labels, content='', contentless_delete=1, tokenize='porter moria_fold'
+                );
+                DROP TRIGGER file_ad;
+                CREATE TRIGGER file_ad AFTER DELETE ON file BEGIN
+                    DELETE FROM name_fts WHERE rowid = old.id;
+                    DELETE FROM content_fts WHERE rowid = old.id;
+                    DELETE FROM label_fts WHERE rowid = old.id;
+                    DELETE FROM doc_text WHERE fileId = old.id;
+                    DELETE FROM chunk_vec WHERE fileId = old.id;
+                END;
+                DROP TRIGGER file_media_invalidated;
+                CREATE TRIGGER file_media_invalidated AFTER UPDATE OF mediaState ON file
+                WHEN old.mediaState = 1 AND new.mediaState != 1 BEGIN
+                    UPDATE file SET taken = NULL, duration = NULL, author = NULL, labels = NULL WHERE id = old.id;
+                    DELETE FROM label_fts WHERE rowid = old.id;
+                END;
+                """)
+        }
         return migrator
     }
 

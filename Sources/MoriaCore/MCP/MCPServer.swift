@@ -318,6 +318,8 @@ public struct ResultRecord: Encodable, Sendable {
     public var matchedName: Bool
     public var matchedContent: Bool
     public var matchedMeaning: Bool
+    /// The words describe what the photo shows.
+    public var matchedLabel: Bool
     public var score: Double
     /// The excerpt without highlight markers.
     public var snippet: String?
@@ -330,6 +332,7 @@ public struct ResultRecord: Encodable, Sendable {
         matchedName = result.matchedName
         matchedContent = result.matchedContent
         matchedMeaning = result.matchedMeaning
+        matchedLabel = result.matchedLabel
         score = result.score
         self.snippet = snippet?.filter { $0 != SearchResult.highlightStart && $0 != SearchResult.highlightEnd }
     }

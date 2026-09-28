@@ -48,7 +48,7 @@ struct HelpView: View {
     private var content: some View {
         switch topic {
         case .searching:
-            paragraph("Type in the search field at the top right. Results appear as you type and match file names and the text inside files. Each result says why it matched: **Name**, **Contents** (with the number of matching lines), **Text in image**, or **Meaning**.")
+            paragraph("Type in the search field at the top right. Results appear as you type and match file names and the text inside files. Each result says why it matched: **Name**, **Contents** (with the number of matching lines), **Text in image**, **In picture** (what a photo shows, such as “beach” or “receipt”), or **Meaning**.")
             paragraph("Use the mode menu at the start of the filter bar to search **Everything**, only **Names**, only **Contents**, with a **Regex**, or to **Ask** in plain language (when turned on). The **+ Filter** menus narrow by kind, date, size and location. Every active filter appears as a chip under the toolbar; click × to remove it. When results mix kinds, the chips on the right narrow to one kind in one click, or leave it out with Option-click.")
             paragraph("Select a result to preview it on the right, with every matching line listed below the preview. Press Space for Quick Look, Return to open, ⌘R to show it in Finder, and ⌘K for more actions. Save a search with ⌘S to keep it in the sidebar.")
         case .syntax:

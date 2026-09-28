@@ -319,7 +319,8 @@ final class SearchModel {
         for item in items {
             let result = item.result
             let matched = [result.matchedName ? "name" : nil, result.matchedContent ? "contents" : nil,
-                           result.matchedMeaning ? "meaning" : nil].compactMap { $0 }.joined(separator: "+")
+                           result.matchedLabel ? "picture" : nil, result.matchedMeaning ? "meaning" : nil]
+                .compactMap { $0 }.joined(separator: "+")
             lines.append([result.path, result.name, result.kind.rawValue, String(result.size),
                           formatter.string(from: result.modified), matched].map(field).joined(separator: ","))
         }
@@ -536,7 +537,7 @@ final class SearchModel {
     func requestDetails(for item: ResultItem) {
         let id = item.id
         guard details[id] == nil, !pendingDetails.contains(id), item.lines.isEmpty,
-              item.result.matchedContent || item.result.matchedMeaning else { return }
+              item.result.matchedContent || item.result.matchedMeaning || item.result.matchedLabel else { return }
         pendingDetails.insert(id)
         let query = activeQuery
         let engine = app.engine
