@@ -16,7 +16,7 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
 - `Sources/CSnowball` — vendored Snowball runtime with the UTF-8 Greek and Russian stemmers (BSD).
 - `Sources/MoriaCLI` — the `moria` executable (target `moria`).
 - `Sources/MoriaApp` — the app (target `MoriaApp`, bundled as `Moria.app`). Default isolation is `MainActor`.
-- `Scripts/package_app.sh` — builds and signs `build/Moria.app` with bundled ripgrep and icon.
+- `Scripts/package_app.sh` — builds and signs `build/Moria.app` with bundled ripgrep and icon, and generates the App Intents metadata (`Metadata.appintents`) that Xcode would: SwiftPM compiles the constant values but doesn't run `appintentsmetadataprocessor`, so the script does. Without it the Shortcuts actions (`App/Intents.swift`) don't exist to the system.
 
 ## Key design decisions
 

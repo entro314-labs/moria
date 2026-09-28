@@ -51,7 +51,7 @@ moria mcp                              # Model Context Protocol server for AI ag
 
 `moria mcp` gives local AI agents (Claude, Cursor, …) read-only tools over the index: `search` (the query syntax, with names/contents modes and meaning), `regex_search` and `index_status`. Register it as a stdio server with the command `/Applications/Moria.app/Contents/Resources/moria` and the argument `mcp`.
 
-Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services › Search with Moria works on selected text and on Finder folders, and dropping a folder on a Moria window searches inside it.
+Shortcuts has two actions: **Search in Moria** (opens a search) and **Find Files with Moria** (returns matching files to the next action). Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services › Search with Moria works on selected text and on Finder folders, and dropping a folder on a Moria window searches inside it.
 
 ## Privacy and footprint
 

@@ -128,12 +128,15 @@ final class AppModel {
     private var hotKey: HotKey?
     private var lastStatsRefresh = Date.distantPast
 
+    /// The index to open: `-indexPath <file>` opens a different one (development and testing).
+    nonisolated static func indexURL(defaults: UserDefaults) -> URL {
+        defaults.string(forKey: "indexPath").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? IndexDatabase.defaultURL
+    }
+
     init(defaults: UserDefaults = .standard) throws {
         MaterializationGuard.disableDownloads()
         self.defaults = defaults
-        // `-indexPath <file>` opens a different index (development and testing).
-        let path = defaults.string(forKey: "indexPath")
-        database = try IndexDatabase(url: path.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? IndexDatabase.defaultURL)
+        database = try IndexDatabase(url: Self.indexURL(defaults: defaults))
         controller = try IndexController(database: database)
         engine = SearchEngine(database: database)
         settings = try database.loadSettings()

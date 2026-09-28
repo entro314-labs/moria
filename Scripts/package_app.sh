@@ -34,6 +34,25 @@ echo "$RG_SHA256  $RG_TARBALL" | shasum -a 256 -c - >/dev/null
 tar -xzf "$RG_TARBALL" -C "$CACHE"
 cp "$CACHE/ripgrep-$RG_VERSION-aarch64-apple-darwin/rg" "$APP/Contents/Resources/rg"
 
+# App Intents metadata (the Shortcuts actions). Xcode extracts it in a build step SwiftPM
+# doesn't run, so run the same tool on the compiler's constant values for the app module.
+OBJECTS=.build/out/Intermediates.noindex/Moria.build/Release/MoriaApp-p.build/Objects-normal/$(uname -m)
+CONST_VALUES=$(find "$OBJECTS" -name '*.swiftconstvalues' 2>/dev/null)
+if [[ -z "$CONST_VALUES" || ! -f "$OBJECTS/MoriaApp.SwiftFileList" ]]; then
+  echo "No constant values for MoriaApp in $OBJECTS; can't build the Shortcuts actions." >&2
+  exit 1
+fi
+echo "$CONST_VALUES" > "$CACHE/const-values.txt"
+xcrun appintentsmetadataprocessor --quiet-warnings \
+  --output "$APP/Contents/Resources" \
+  --toolchain-dir "$(dirname "$(dirname "$(dirname "$(xcrun --find swift)")")")" \
+  --module-name MoriaApp --sdk-root "$(xcrun --show-sdk-path)" \
+  --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
+  --platform-family macOS --deployment-target 26.0 --target-triple "$(uname -m)-apple-macos26.0" \
+  --source-file-list "$OBJECTS/MoriaApp.SwiftFileList" --swift-const-vals-list "$CACHE/const-values.txt" \
+  --force > /dev/null
+[[ -f "$APP/Contents/Resources/Metadata.appintents/extract.actionsdata" ]] || { echo "App Intents metadata missing" >&2; exit 1; }
+
 # Icon
 if [[ ! -f build/icon/AppIcon.icns || Scripts/make_icon.swift -nt build/icon/AppIcon.icns ]]; then
   mkdir -p build/icon/AppIcon.iconset
