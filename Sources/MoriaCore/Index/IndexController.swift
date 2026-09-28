@@ -49,7 +49,8 @@ public actor IndexController {
         static let generation = "scan.generation"
         static let lastScan = "scan.date"
         static let eventID = "fsevents.lastID"
-        static let eventDatabase = "fsevents.uuid"
+        /// Before per-location volume records: the FSEvents database of the first location.
+        static let legacyEventDatabase = "fsevents.uuid"
     }
 
     public init(database: IndexDatabase) throws {
@@ -70,7 +71,17 @@ public actor IndexController {
     public func start() throws {
         guard loop == nil else { return }
         let resumeID = try resumableEventID()
-        if resumeID == nil { fullScanRequested = true }
+        if resumeID == nil {
+            fullScanRequested = true
+        } else {
+            // A drive may have been changed on another Mac while it was away, which this Mac's
+            // event history doesn't show: connected locations on other volumes are crawled again.
+            let records = try database.volumeRecords()
+            for root in settings.roots {
+                guard let record = records[root], record.mountPoint != "/", Volumes.isMounted(record.mountPoint) else { continue }
+                queuedChanges.append(FileChange(path: root, rescanSubtree: true))
+            }
+        }
         try startWatcher(since: resumeID)
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         wake = continuation
@@ -272,13 +283,23 @@ public actor IndexController {
         self.watcher = watcher
     }
 
-    /// The stored FSEvents ID if it is still valid for this volume, else nil (full scan needed).
+    /// The stored FSEvents ID if it is still valid, else nil (full scan needed): every connected
+    /// location must have been scanned and still be on the FSEvents database the ID refers to.
+    /// Locations whose drive is away are checked when it returns (see `FileWatcher`).
     private func resumableEventID() throws -> UInt64? {
         guard try database.meta(MetaKey.generation) != nil,
-              let stored = try database.meta(MetaKey.eventID).flatMap(UInt64.init),
-              let root = settings.roots.first,
-              try database.meta(MetaKey.eventDatabase) == FileWatcher.eventDatabaseUUID(forPath: root)
-        else { return nil }
+              let stored = try database.meta(MetaKey.eventID).flatMap(UInt64.init) else { return nil }
+        let records = try database.volumeRecords()
+        let offline = Volumes.offlineMountPoints(records)
+        for root in settings.roots {
+            guard let record = records[root] else {
+                // Never scanned while it existed: nothing to resume there, unless it exists now.
+                if Volumes.mountPoint(of: root) == nil { continue }
+                return nil
+            }
+            if offline.contains(record.mountPoint) { continue }
+            guard record.eventDatabase == FileWatcher.eventDatabaseUUID(forPath: root) else { return nil }
+        }
         return stored
     }
 
@@ -311,7 +332,10 @@ public actor IndexController {
         let eventID = FileWatcher.currentEventID
         let generation = try nextGeneration()
         var writer = MetadataWriter(generation: generation, maxFileBytes: maxFileBytes)
-        let crawl = PipelinedCrawl(rules: CrawlRules(settings: settings), roots: settings.roots)
+        // Locations on drives that aren't connected keep their entries until the drive returns.
+        let offline = try database.offlineMountPoints()
+        let roots = settings.roots.filter { root in !offline.contains { Volumes.isInside(root, $0) } }
+        let crawl = PipelinedCrawl(rules: CrawlRules(settings: settings), roots: roots)
         do {
             for try await batch in crawl.batches {
                 try Task.checkCancellation()
@@ -331,7 +355,7 @@ public actor IndexController {
             throw CancellationError()
         }
         state.unreadableDirectories = crawl.unreadableDirectories
-        try database.pruneUnseen(before: generation)
+        try database.pruneUnseen(before: generation, keeping: offline)
         let now = Date()
         state.lastScanDate = now
         try database.setMeta(MetaKey.lastScan, String(now.timeIntervalSince1970))
@@ -343,9 +367,25 @@ public actor IndexController {
 
     private func persistEventID(_ eventID: UInt64) throws {
         try database.setMeta(MetaKey.eventID, String(eventID))
-        if let root = settings.roots.first {
-            try database.setMeta(MetaKey.eventDatabase, FileWatcher.eventDatabaseUUID(forPath: root))
+        try recordVolumes()
+    }
+
+    /// Remembers the volume of every location that is there now. An offline location keeps
+    /// what was recorded, so it is still recognized as offline: its folder may be left behind,
+    /// empty, on the startup volume.
+    private func recordVolumes() throws {
+        let old = try database.volumeRecords()
+        let offline = Volumes.offlineMountPoints(old)
+        var records: [String: VolumeRecord] = [:]
+        for root in settings.roots {
+            if let record = old[root], offline.contains(record.mountPoint) {
+                records[root] = record
+            } else {
+                records[root] = Volumes.record(for: root) ?? old[root]
+            }
         }
+        if records != old { try database.setVolumeRecords(records) }
+        try database.setMeta(MetaKey.legacyEventDatabase, nil)
     }
 
     private func applyQueuedChanges() throws {
@@ -368,7 +408,10 @@ public actor IndexController {
         for change in changes { merged[change.path, default: false] = merged[change.path, default: false] || change.rescanSubtree }
         var writer = try MetadataWriter(generation: currentGeneration, maxFileBytes: maxFileBytes)
         var metas: [FileMeta] = []
+        // A drive being ejected reports its files as gone; they stay, marked offline.
+        let offline = try database.offlineMountPoints()
         for (path, rescan) in merged.sorted(by: { $0.key < $1.key }) {
+            if offline.contains(where: { Volumes.isInside(path, $0) }) { continue }
             guard let root = root(containing: path), !rules.isExcludedAnywhere(path: path, below: root),
                   !isInsideOpaquePackage(path, below: root, crawler: &crawler) else { continue }
             guard let meta = crawler.meta(forPath: path) else {
@@ -420,10 +463,12 @@ public actor IndexController {
     /// slower per file). Returns false when nothing is pending.
     private func extractBatch() async throws -> Bool {
         var phase = IndexProgress.Phase.extracting
-        var batch = try database.pendingFiles(limit: 128, images: false)
+        // Files on drives that aren't connected wait for them.
+        let offline = try database.offlineMountPoints()
+        var batch = try database.pendingFiles(limit: 128, images: false, outside: offline)
         if batch.isEmpty {
             phase = .recognizingText
-            batch = try database.pendingFiles(limit: 32, images: true)
+            batch = try database.pendingFiles(limit: 32, images: true, outside: offline)
         }
         guard !batch.isEmpty else { return false }
         state.remainingFiles = try database.pendingCount()
@@ -487,7 +532,7 @@ public actor IndexController {
             try database.markNotEmbeddable()
             embedBacklogCleaned = true
         }
-        let batch = try database.filesNeedingEmbedding(limit: 64)
+        let batch = try database.filesNeedingEmbedding(limit: 64, outside: try database.offlineMountPoints())
         guard !batch.isEmpty else { return false }
         publish(phase: .embedding)
         let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter)

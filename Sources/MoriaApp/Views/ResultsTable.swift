@@ -457,7 +457,7 @@ final class ResultCell: NSTableCellView {
     func configure(item: ResultItem, details: MatchDetails?) {
         let result = item.result
         icon.image = IconCache.icon(for: result)
-        icon.alphaValue = result.isCloudOnly ? 0.55 : 1
+        icon.alphaValue = result.isCloudOnly || result.isOffline ? 0.55 : 1
         name.stringValue = result.name
         toolTip = result.path
 
@@ -571,6 +571,9 @@ struct MatchLabel: Hashable {
         }
         if result.isCloudOnly {
             labels.append(MatchLabel(text: "Cloud", help: "Not downloaded; indexed by name only", colorName: "gray"))
+        }
+        if result.isOffline {
+            labels.append(MatchLabel(text: "Offline", help: "On a drive that isn't connected", colorName: "gray"))
         }
         return labels
     }

@@ -235,7 +235,7 @@ private struct QuickRow: View {
             Image(nsImage: IconCache.icon(for: item.result))
                 .resizable()
                 .frame(width: 28, height: 28)
-                .opacity(item.result.isCloudOnly ? 0.55 : 1)
+                .opacity(item.result.isCloudOnly || item.result.isOffline ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.result.name).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
                 Group {

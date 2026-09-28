@@ -18,11 +18,6 @@ are never edited.
 
 ## Significant
 
-- **External and removable volumes.** Roots on other volumes can be added, but from the code:
-  the FSEvents resume point is stored and checked only for the first root
-  (`IndexController.resumableEventID`), and a full scan while a volume is unmounted prunes all
-  of its entries (`pruneUnseen`). Needed: a resume point per volume, entries kept and marked
-  offline while their volume is away, and a volume filter.
 - **Duplicates.** Group files by size from the index, then hash only the candidates. Needs a
   hash column (migration), must skip cloud-only files (`MaterializationGuard`), and a place in
   the UI (a collection or a mode).

@@ -107,12 +107,41 @@ extension IndexDatabase {
         }
     }
 
-    /// Deletes rows not seen by the scan with `generation` (removed or newly excluded entries).
-    func pruneUnseen(before generation: Int) throws {
+    /// Deletes rows not seen by the scan with `generation` (removed or newly excluded entries),
+    /// except those inside `kept` folders (drives that weren't connected) and the folders
+    /// themselves.
+    func pruneUnseen(before generation: Int, keeping kept: Set<String> = []) throws {
+        let keep = Self.outside(kept, alias: "d")
         try pool.write { db in
-            try db.execute(sql: "DELETE FROM file WHERE seen < ?", arguments: [generation])
-            try db.execute(sql: "DELETE FROM dir WHERE seen < ?", arguments: [generation])
+            var fileSQL = "DELETE FROM file WHERE seen < ?"
+            var fileArguments: StatementArguments = [generation]
+            if !kept.isEmpty {
+                fileSQL += " AND id NOT IN (SELECT f.id FROM file f JOIN dir d ON d.id = f.dirId WHERE NOT (\(keep.sql)) OR \(Self.entries(kept).sql))"
+                fileArguments += keep.arguments + Self.entries(kept).arguments
+            }
+            try db.execute(sql: fileSQL, arguments: fileArguments)
+            // The folders holding the kept folders' own entries stay too.
+            let parents = Set(kept.map { ($0 as NSString).deletingLastPathComponent }).sorted()
+            let parentSQL = parents.isEmpty ? "" : " AND d.path NOT IN (\(parents.map { _ in "?" }.joined(separator: ",")))"
+            try db.execute(sql: "DELETE FROM dir AS d WHERE seen < ? AND \(keep.sql)\(parentSQL)",
+                           arguments: [generation] + keep.arguments + StatementArguments(parents))
         }
+    }
+
+    /// A condition that `alias.path` is outside every folder in `folders` ("1" when empty).
+    static func outside(_ folders: Set<String>, alias: String) -> (sql: String, arguments: StatementArguments) {
+        guard !folders.isEmpty else { return ("1", []) }
+        let sorted = folders.sorted()
+        let sql = sorted.map { _ in "NOT (\(alias).path = ? OR (\(alias).path >= ? AND \(alias).path < ?))" }.joined(separator: " AND ")
+        return (sql, StatementArguments(sorted.flatMap { [$0, $0 + "/", $0 + "0"] }))
+    }
+
+    /// A condition matching the entries for `folders` themselves (`f` in `d`), which live in
+    /// their parent folders.
+    private static func entries(_ folders: Set<String>) -> (sql: String, arguments: StatementArguments) {
+        let sorted = folders.sorted()
+        let sql = sorted.map { _ in "(d.path = ? AND f.name = ?)" }.joined(separator: " OR ")
+        return ("(\(sql))", StatementArguments(sorted.flatMap { [($0 as NSString).deletingLastPathComponent, ($0 as NSString).lastPathComponent] }))
     }
 
     /// Deletes rows below `path` that were not seen by `generation` (after a subtree rescan).
@@ -132,16 +161,17 @@ extension IndexDatabase {
     /// Next files to extract, newest first: files never read before stale ones, whose old text
     /// is still searchable. `images: false` returns everything except images, so fast text
     /// extraction finishes before the slow OCR pass (`images: true`) starts.
-    func pendingFiles(limit: Int, images: Bool) throws -> [PendingFile] {
-        try pool.read { db in
+    func pendingFiles(limit: Int, images: Bool, outside offline: Set<String> = []) throws -> [PendingFile] {
+        let outside = Self.outside(offline, alias: "d")
+        return try pool.read { db in
             var files: [PendingFile] = []
             // One query per state, so each uses its partial index.
             for state in [ContentState.pending, .stale] where files.count < limit {
                 files += try Row.fetchAll(db, sql: """
                     SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
                     FROM file f JOIN dir d ON d.id = f.dirId
-                    WHERE f.contentState = ? AND (f.kind = 'image') = ? ORDER BY f.mtime DESC LIMIT ?
-                    """, arguments: [state.rawValue, images, limit - files.count]).map { row in
+                    WHERE f.contentState = ? AND (f.kind = 'image') = ? AND \(outside.sql) ORDER BY f.mtime DESC LIMIT ?
+                    """, arguments: [state.rawValue, images] + outside.arguments + [limit - files.count]).map { row in
                     PendingFile(
                         id: row["id"], path: row["path"], ext: row["ext"],
                         kind: FileKind(rawValue: row["kind"]) ?? .other, size: row["size"], mtime: row["mtime"]
@@ -242,14 +272,15 @@ extension IndexDatabase {
     }
 
     /// Indexed documents without embeddings.
-    func filesNeedingEmbedding(limit: Int, home: String = NSHomeDirectory()) throws -> [(id: Int64, path: String, kind: FileKind)] {
+    func filesNeedingEmbedding(limit: Int, outside offline: Set<String> = [], home: String = NSHomeDirectory()) throws -> [(id: Int64, path: String, kind: FileKind)] {
         let embeddable = Self.embeddable(home: home)
+        let outside = Self.outside(offline, alias: "d")
         return try pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT f.id, \(Self.pathSQL) AS path, f.kind FROM file f JOIN dir d ON d.id = f.dirId
-                WHERE f.embedState = 0 AND f.contentState = 1 AND \(embeddable.sql)
+                WHERE f.embedState = 0 AND f.contentState = 1 AND \(embeddable.sql) AND \(outside.sql)
                 LIMIT ?
-                """, arguments: embeddable.arguments + [limit]
+                """, arguments: embeddable.arguments + outside.arguments + [limit]
             ).map { (id: $0["id"], path: $0["path"], kind: FileKind(rawValue: $0["kind"]) ?? .other) }
         }
     }

@@ -55,8 +55,9 @@ struct SidebarView: View {
             Section("Locations") {
                 ForEach(locations, id: \.self) { path in
                     Label(title(for: path), systemImage: symbol(for: path))
+                        .badge(model.app.isOffline(path) ? Text("Offline") : nil)
                         .tag(SidebarItem.location(path))
-                        .help(Display.abbreviate(path))
+                        .help(Display.abbreviate(path) + (model.app.isOffline(path) ? " (drive not connected)" : ""))
                         .contextMenu {
                             Button("Show in Finder") { FileActions.reveal([URL(fileURLWithPath: path)]) }
                             if model.app.customLocations.contains(path) {

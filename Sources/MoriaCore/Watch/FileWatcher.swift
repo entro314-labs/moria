@@ -105,8 +105,14 @@ public final class FileWatcher: @unchecked Sendable {
             func has(_ value: Int) -> Bool { flag & value != 0 }
 
             if has(kFSEventStreamEventFlagHistoryDone) { continue }
-            if has(kFSEventStreamEventFlagEventIdsWrapped) || has(kFSEventStreamEventFlagRootChanged) {
+            if has(kFSEventStreamEventFlagEventIdsWrapped) {
                 needsFullRescan = true
+                continue
+            }
+            // A location appeared, moved or vanished (a drive was connected or ejected): it is
+            // crawled again if it's there, or kept as offline if its drive is away.
+            if has(kFSEventStreamEventFlagRootChanged) {
+                changes.append(FileChange(path: path, rescanSubtree: true))
                 continue
             }
             let coalesced = has(kFSEventStreamEventFlagMustScanSubDirs)

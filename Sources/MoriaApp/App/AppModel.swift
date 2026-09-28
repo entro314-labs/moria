@@ -17,6 +17,13 @@ final class AppModel {
     private(set) var stats: IndexDatabase.Stats?
     /// Finder tags in the index, most used first (for suggestions).
     private(set) var tagNames: [String] = []
+    /// Mount points of indexed drives that aren't connected.
+    private(set) var offlineMountPoints: Set<String> = []
+
+    /// A location on a drive that isn't connected.
+    func isOffline(_ path: String) -> Bool {
+        offlineMountPoints.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
     private(set) var hasFullDiskAccess = FullDiskAccess.isGranted
     private(set) var hotKeyError: String?
     /// The last failed action of the app itself (indexing errors are in `progress.lastError`,
@@ -191,9 +198,11 @@ final class AppModel {
         Task.detached(priority: .utility) {
             let stats = try? database.stats()
             let tags = try? engine.tagNames()
+            let offline = try? database.offlineMountPoints()
             await MainActor.run {
                 self.stats = stats
                 if let tags { self.tagNames = tags }
+                if let offline { self.offlineMountPoints = offline }
             }
         }
     }

@@ -100,7 +100,7 @@ private struct RecentFileCard: View {
         }
         .draggable(file.url)
         .task(id: file.id) {
-            guard !file.isCloudOnly else { return }
+            guard !file.isCloudOnly, !file.isOffline else { return }
             let request = QLThumbnailGenerator.Request(fileAt: file.url, size: CGSize(width: 190, height: 104),
                                                        scale: NSScreen.main?.backingScaleFactor ?? 2,
                                                        representationTypes: .thumbnail)

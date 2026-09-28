@@ -81,6 +81,7 @@ struct HelpView: View {
             paragraph("Text is read from documents, PDFs (scanned pages are recognized), Office and OpenDocument files, e-books, web pages, email files, code and plain text, and images of text. To keep the index small, files in your Library, in hidden folders and in dependency or build folders are indexed by name only; you can change this in Settings › Contents. Regex search still reads code and text files everywhere.")
             paragraph("Searches ignore case and accents in every script. A word also finds its other forms in English, Greek and Russian: “αποδείξεις” finds “απόδειξη”, “invoices” finds “invoice”.")
             paragraph("Files in iCloud Drive, Dropbox, OneDrive and Google Drive that aren't downloaded are indexed by name only. Moria never downloads files to read them.")
+            paragraph("Locations on external drives and network volumes stay in the index when the drive is ejected: their results are marked **Offline**, and their stored text is still searchable. When the drive is connected again, Moria reads the location again, catching changes made on another Mac.")
             paragraph("Finder tags are indexed where contents are read, and follow changes as you tag files. Search them with `tag:`, and show them in the Tags column (right-click the column headers).")
             paragraph("For Moria to see Mail, Messages and other protected data, allow **Full Disk Access** in System Settings › Privacy & Security. Everything stays on this Mac.")
         case .intelligence:

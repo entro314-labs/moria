@@ -13,6 +13,8 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var modified: Date
     public var created: Date
     public var isCloudOnly: Bool
+    /// On a drive or network volume that isn't connected: indexed, but can't be opened now.
+    public var isOffline = false
     /// Finder tag names.
     public var tags: [String] = []
     /// Why it matched.
@@ -87,6 +89,21 @@ public final class SearchEngine: Sendable {
     }
 
     public func search(_ query: SearchQuery, limit: Int = 500, semantic: Bool = false) async throws -> [SearchResult] {
+        try markOffline(try await rankedResults(query, limit: limit, semantic: semantic))
+    }
+
+    /// Flags results on drives that aren't connected.
+    private func markOffline(_ results: [SearchResult]) throws -> [SearchResult] {
+        let offline = try database.offlineMountPoints()
+        guard !offline.isEmpty else { return results }
+        return results.map { result in
+            var result = result
+            result.isOffline = offline.contains { Volumes.isInside(result.path, $0) }
+            return result
+        }
+    }
+
+    private func rankedResults(_ query: SearchQuery, limit: Int, semantic: Bool) async throws -> [SearchResult] {
         guard !query.isEmpty else { return [] }
         if let path = query.similarTo {
             return try await similar(to: path, query: query, limit: limit)
@@ -301,7 +318,8 @@ public final class SearchEngine: Sendable {
     /// Metadata for specific files (e.g. regex hits), keyed by id.
     public func metadata(for ids: [Int64]) async throws -> [Int64: SearchResult] {
         guard !ids.isEmpty else { return [:] }
-        return try fetch(ids: ids, query: SearchQuery())
+        let marked = try markOffline(Array(try fetch(ids: ids, query: SearchQuery()).values))
+        return Dictionary(uniqueKeysWithValues: marked.map { ($0.id, $0) })
     }
 
     /// Rows for `ids` that pass the query's filters and, with `contentMatch`, whose contents

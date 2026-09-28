@@ -73,7 +73,10 @@ private struct PreviewPane: View {
 
     var body: some View {
         Group {
-            if result.isCloudOnly {
+            if result.isOffline {
+                ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
+                                       description: Text("Connect the drive to preview or open this file. Its indexed text is still searchable."))
+            } else if result.isCloudOnly {
                 // Quick Look runs in another process that would download the file.
                 ContentUnavailableView {
                     Label("In the Cloud", systemImage: "icloud")
@@ -258,6 +261,7 @@ private struct InfoPane: View {
                 row("Modified", Display.absoluteDate.string(from: result.modified))
                 row("Created", Display.absoluteDate.string(from: result.created))
                 if result.isCloudOnly { row("Storage", "In the cloud, not downloaded") }
+                if result.isOffline { row("Storage", "On a drive that isn't connected") }
                 row("Path", Display.abbreviate(result.path))
             }
             .font(.callout)
@@ -279,7 +283,7 @@ private struct InfoPane: View {
     /// a large PDF or a slow volume would otherwise stall the window.
     @concurrent
     private nonisolated static func facts(for result: SearchResult) async -> [(String, String)] {
-        guard !result.isCloudOnly, !result.isDirectory else { return [] }
+        guard !result.isCloudOnly, !result.isOffline, !result.isDirectory else { return [] }
         switch result.kind {
         case .image:
             guard let source = CGImageSourceCreateWithURL(result.url as CFURL, nil),
