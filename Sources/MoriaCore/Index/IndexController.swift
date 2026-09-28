@@ -40,6 +40,12 @@ public actor IndexController {
     private var rebuildRequested = false
     /// `markNotEmbeddable` ran in this session (it only needs to once).
     private var embedBacklogCleaned = false
+    /// How often each file changed between being listed and being read, this session.
+    private var changedWhileReading: [Int64: Int] = [:]
+    /// A file that changed this many times while waiting to be read is given up on until it
+    /// next changes: it is being written continuously (a log, or the index database itself
+    /// inside an indexed folder), and would otherwise be read again forever.
+    static let maxChangesWhileReading = 3
     private var wake: AsyncStream<Void>.Continuation?
     private var loop: Task<Void, Never>?
     private let ocrLimiter = AsyncLimiter(limit: 2)
@@ -466,7 +472,7 @@ public actor IndexController {
     private enum Outcome: Sendable {
         case result(ExtractionResult)
         /// The file changed or vanished since it was listed; re-stat it.
-        case changed(String)
+        case changed(PendingFile)
     }
 
     /// Extracts one batch of pending files: text formats first, then images (OCR, ~10x
@@ -488,7 +494,7 @@ public actor IndexController {
         let maxFileBytes = maxFileBytes
         let width = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
         var results: [ExtractionResult] = []
-        var changed: [FileChange] = []
+        var changed: [PendingFile] = []
         try await withThrowingTaskGroup(of: Outcome.self) { group in
             var iterator = batch.makeIterator()
             for _ in 0..<width {
@@ -498,7 +504,7 @@ public actor IndexController {
             while let outcome = try await group.next() {
                 switch outcome {
                 case let .result(result): results.append(result)
-                case let .changed(path): changed.append(FileChange(path: path, rescanSubtree: false))
+                case let .changed(file): changed.append(file)
                 }
                 if let file = iterator.next() {
                     group.addTask { try await Self.process(file, extractor: extractor, maxFileBytes: maxFileBytes) }
@@ -506,7 +512,15 @@ public actor IndexController {
             }
         }
         try database.store(results)
-        try apply(changed)
+        try apply(changed.map { FileChange(path: $0.path, rescanSubtree: false) })
+        var unstable: [Int64] = []
+        for file in changed {
+            changedWhileReading[file.id, default: 0] += 1
+            if changedWhileReading[file.id]! >= Self.maxChangesWhileReading { unstable.append(file.id) }
+        }
+        // Marked unreadable at whatever state it is in now; its next change (seen by the watcher
+        // or a scan) queues it again, and one more change gives up on it again.
+        try database.markUnreadable(unstable)
         state.extractedFiles += results.count
         state.remainingFiles = max(0, state.remainingFiles - results.count)
         publish(phase: phase)
@@ -517,7 +531,7 @@ public actor IndexController {
         var st = stat()
         guard lstat(file.path, &st) == 0,
               Crawler.seconds(st.st_mtimespec) == file.mtime, Int64(st.st_size) == file.size
-        else { return .changed(file.path) }
+        else { return .changed(file) }
         guard file.size <= maxFileBytes else {
             return .result(ExtractionResult(id: file.id, mtime: file.mtime, state: .none, text: nil, storeText: false))
         }

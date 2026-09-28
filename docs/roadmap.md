@@ -7,14 +7,6 @@ reasons.
 Anything that stores new data in the index needs a new migration (`v4`, …); applied migrations
 are never edited.
 
-## Fixes
-
-- **A file that changes while it is read loops extraction.** A pending file whose mtime or size
-  changes between being listed and being read is re-stated and queued again, forever, if it
-  keeps changing: the index database itself when `-indexPath` puts it inside an indexed folder
-  (the default location is excluded), or an actively written log. `IndexController.extractBatch`
-  should give up on such a file after a few tries per session.
-
 ## Significant
 
 - **Tests for the app layer.** `MoriaAppTests` covers Trash undo, saved searches, sidebar

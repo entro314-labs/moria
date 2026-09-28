@@ -509,4 +509,27 @@ struct IndexTests {
         // Latin script is unchanged (Porter, in the index).
         #expect(Stemmer.stem("invoices") == nil)
     }
+
+    /// The index database inside an indexed folder changes every time indexing writes to it,
+    /// so it has always changed by the time it is read. Indexing must still finish.
+    @Test(.timeLimit(.minutes(1))) func aFileThatKeepsChangingDoesNotStallIndexing() async throws {
+        let database = try IndexDatabase(url: root.appending(path: "Documents/index.sqlite"))
+        let controller = try IndexController(database: database)
+        var settings = MoriaSettings.defaults(home: root.path)
+        settings.roots = [root.path]
+        settings.excludedPaths = []
+        settings.ocrImages = false
+        try await controller.updateSettings(settings)
+        try await controller.indexNow(full: true)
+
+        let engine = SearchEngine(database: database, home: root.path)
+        #expect(try await search(engine, "apartment") == ["Documents/Taxes/receipt.txt"])
+        // The write-ahead log changes with every write: given up on for now rather than left
+        // pending, and tried again when it next changes.
+        let state = try await database.pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT contentState FROM file WHERE name = 'index.sqlite-wal'")
+        }
+        #expect(state == ContentState.failed.rawValue)
+        #expect(try database.pendingCount() == 0)
+    }
 }

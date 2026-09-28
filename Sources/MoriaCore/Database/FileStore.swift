@@ -311,6 +311,16 @@ extension IndexDatabase {
         try pool.read { db in try Int.fetchOne(db, sql: "SELECT count(*) FROM file WHERE mediaState = 0") ?? 0 }
     }
 
+    /// Gives up on reading files for now (`failed`); they are queued again when they change.
+    func markUnreadable(_ ids: [Int64]) throws {
+        guard !ids.isEmpty else { return }
+        try pool.write { db in
+            try db.execute(sql: """
+                UPDATE file SET contentState = 3 WHERE contentState IN (0, 6) AND id IN (\(ids.map(String.init).joined(separator: ",")))
+                """)
+        }
+    }
+
     /// Queues eligible files to be read again after extraction settings changed; `kinds` limits
     /// it to the affected formats. Indexed files become stale, keeping their text searchable
     /// until they are read again; skipped and failed ones become pending. Excluded, cloud-only
