@@ -215,12 +215,16 @@ final class AppModel {
         transform(&new)
         guard new != settings else { return }
         let enabledNL = new.naturalLanguageQueriesEnabled && !settings.naturalLanguageQueriesEnabled
+        let old = settings
         settings = new
         if enabledNL { NaturalLanguageQuery.prewarm() }
         Task {
             do {
                 try await controller.updateSettings(new)
             } catch {
+                // The index still has the old settings: show them again, unless a later change
+                // has already replaced these.
+                if settings == new { settings = old }
                 lastError = "Settings could not be saved: \(error)"
             }
         }
