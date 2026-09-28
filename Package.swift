@@ -14,6 +14,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.11.1"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.2"),
         .package(url: "https://github.com/swiftlang/swift-subprocess", from: "1.0.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],
     targets: [
         .target(name: "CSnowball"),
@@ -36,7 +37,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MoriaApp",
-            dependencies: ["MoriaCore"],
+            dependencies: ["MoriaCore", .product(name: "Sparkle", package: "Sparkle")],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
             ]

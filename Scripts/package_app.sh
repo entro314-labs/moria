@@ -11,6 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source version.env
+source Scripts/release.env
 
 RG_VERSION=15.2.0
 RG_SHA256=3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4  # pinned; update together with RG_VERSION
@@ -22,9 +23,14 @@ swift build -c release --product moria
 BIN=$(swift build -c release --show-bin-path)
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$CACHE"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks" "$CACHE"
 cp "$BIN/MoriaApp" "$APP/Contents/MacOS/Moria"
 cp "$BIN/moria" "$APP/Contents/Resources/moria"
+
+# Sparkle: SwiftPM links it through @rpath but only searches the build folder.
+ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Moria"
+install_name_tool -delete_rpath "$BIN/PackageFrameworks" "$APP/Contents/MacOS/Moria" 2>/dev/null || true
 
 # ripgrep: official static build (the Homebrew one links Homebrew's PCRE2).
 RG_TARBALL="$CACHE/ripgrep-$RG_VERSION-aarch64-apple-darwin.tar.gz"
@@ -92,6 +98,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
       <key>CFBundleURLSchemes</key><array><string>moria</string></array>
     </dict>
   </array>
+  <key>SUFeedURL</key><string>https://github.com/$GITHUB_REPO/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
   <key>NSServices</key>
   <array>
     <dict>
@@ -127,6 +135,14 @@ fi
 for nested in "$APP/Contents/Resources/rg" "$APP/Contents/Resources/moria"; do
   codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$nested"
 done
+# Sparkle's helpers, innermost first, as Sparkle documents for apps built without Xcode; the
+# downloader keeps its entitlements.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$SPARKLE/XPCServices/Installer.xpc"
+codesign --force --options runtime "$TIMESTAMP" --preserve-metadata=entitlements --sign "$IDENTITY" "$SPARKLE/XPCServices/Downloader.xpc"
+codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$SPARKLE/Autoupdate"
+codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$SPARKLE/Updater.app"
+codesign --force --options runtime "$TIMESTAMP" --sign "$IDENTITY" "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --options runtime "$TIMESTAMP" --identifier com.entro314labs.moria --sign "$IDENTITY" "$APP"
-codesign --verify --strict "$APP"
+codesign --verify --strict --deep "$APP"
 echo "Built $APP ($MARKETING_VERSION build $BUILD_NUMBER), signed by: $IDENTITY"

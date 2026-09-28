@@ -33,3 +33,4 @@
 - Shortcuts actions: Search in Moria (opens a search) and Find Files with Moria (returns matching files to the next action without showing Moria), both using the query syntax, with Spotlight phrases.
 - Upgrading an existing index: the first launch applies four schema migrations (about 6 seconds on a 4-million-entry index, before the window appears), then rescans every location once to read Finder tags, then reads photo, audio and document details and photo labels in the background (on the order of an hour for tens of thousands of photos).
 - A file that keeps changing while it waits to be read (an active log, or the index’s own files inside an indexed folder) is given up on after three tries instead of being read again forever; it is tried again when it next changes.
+- Updates through Sparkle: Moria › Check for Updates…, automatic checks (asked at the second launch; Settings › General), and releases published on GitHub as notarized disk images.

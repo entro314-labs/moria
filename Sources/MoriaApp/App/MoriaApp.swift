@@ -21,6 +21,7 @@ struct MoriaApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Moria") { AboutPanel.show() }
+                UpdateCommands(updates: delegate.updates)
             }
             CommandGroup(after: .appSettings) {
                 if let app = delegate.app {
@@ -43,6 +44,7 @@ struct MoriaApp: App {
             if let app = delegate.app {
                 SettingsView()
                     .environment(app)
+                    .environment(delegate.updates)
                     .windowResizeAnchor(.top)
             }
         }
@@ -64,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var app: AppModel?
     private(set) var startupError: String?
     private(set) var quickPanel: QuickPanelController?
+    let updates = Updates()
 
     override init() {
         super.init()
@@ -183,7 +186,7 @@ enum AboutPanel {
             attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
         )
         credits.append(NSAttributedString(
-            string: "Includes ripgrep by Andrew Gallant (MIT / Unlicense), GRDB.swift by Gwendal Roué (MIT), Snowball stemmers by Martin Porter and contributors (BSD), and Swift Subprocess and Swift System by Apple (Apache 2.0). Built on SQLite FTS5, PDFKit, Vision, Natural Language and Foundation Models. Everything is indexed on this Mac and never leaves it.",
+            string: "Includes ripgrep by Andrew Gallant (MIT / Unlicense), GRDB.swift by Gwendal Roué (MIT), Sparkle by the Sparkle Project (MIT), Snowball stemmers by Martin Porter and contributors (BSD), and Swift Subprocess and Swift System by Apple (Apache 2.0). Built on SQLite FTS5, PDFKit, Vision, Natural Language and Foundation Models. Everything is indexed on this Mac and never leaves it.",
             attributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor]
         ))
         NSApp.activate()

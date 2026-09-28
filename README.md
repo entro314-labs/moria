@@ -2,6 +2,7 @@
 
 Deep search for macOS: every file name, the text inside documents, PDFs, code and images, regular expressions, and (optionally) meaning — from its own index, so it finds what Spotlight skips.
 
+- **Updates itself** — through Sparkle, from GitHub Releases; turn automatic checks off in Settings.
 - **Everything by name** — every file and folder under your locations, including hidden files, app data and cloud folders. Cloud-only files are indexed by name and never downloaded.
 - **Contents** — plain text and code, PDFs (scanned pages via text recognition), Word, RTF, OpenDocument, PowerPoint, Excel, EPUB, HTML, email files, and text in screenshots and photos. Photos are also found by what they show (“beach”, “document”), recognized on this Mac. Accent- and case-insensitive in every script, with English, Greek and Russian stemming (a search for one form of a word finds the others).
 - **Regex** over names, contents and extracted document text (bundled ripgrep).
@@ -69,12 +70,14 @@ Scripts/package_app.sh      # build/Moria.app, signed with your Apple Developmen
 open build/Moria.app
 ```
 
-Releases are notarized disk images:
+Releases are notarized disk images on [GitHub Releases](https://github.com/entro314-labs/moria/releases); installed copies update themselves through [Sparkle](https://sparkle-project.org) (Moria › Check for Updates…).
 
 ```
 xcrun notarytool store-credentials moria --apple-id <apple id> --team-id <team id>   # once
-DRY_RUN=1 Scripts/release.sh 0.2.0   # check that it builds and signs; changes nothing
-Scripts/release.sh 0.2.0             # build/Moria-0.2.0.dmg, notarized; commit and tag v0.2.0
+DRY_RUN=1 Scripts/release.sh 0.2.0   # build the disk image and update feed; changes nothing
+Scripts/release.sh 0.2.0             # notarize, commit, tag, push and publish v0.2.0
 ```
+
+The release notes are the changelog's Unreleased section. Updates are signed with a key kept in the login keychain (account `moria`); back it up with `build/cache/sparkle-*/bin/generate_keys --account moria -x <file>` and keep the file private: without it no update can be published to existing installs.
 
 See `AGENTS.md` for the architecture.

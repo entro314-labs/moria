@@ -22,12 +22,14 @@ struct SettingsView: View {
 
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var app
+    @Environment(Updates.self) private var updates
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
     @AppStorage("showDockIcon") private var showDockIcon = true
     @AppStorage("defaultScope") private var defaultScope = SearchScope.everything.rawValue
 
     var body: some View {
         @Bindable var app = app
+        @Bindable var updates = updates
         Form {
             Section {
                 Picker("Quick search shortcut", selection: $app.hotKeyChoice) {
@@ -37,6 +39,9 @@ private struct GeneralSettings: View {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                 }
                 Toggle("Open at login", isOn: Binding(get: { app.launchAtLogin }, set: { app.launchAtLogin = $0 }))
+                if updates.isAvailable {
+                    Toggle("Check for updates automatically", isOn: $updates.checksAutomatically)
+                }
                 Toggle("Show in menu bar", isOn: $showMenuBarExtra)
                 Toggle("Show in Dock", isOn: $showDockIcon)
                     .onChange(of: showDockIcon) {
