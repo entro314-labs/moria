@@ -11,9 +11,6 @@ are never edited.
 
 Defects found in a review against Apple's macOS guidelines. They come before new work.
 
-- **Quick search and action palette rows for VoiceOver.** Rows in `QuickPanel.swift` and
-  `ActionPalette` (`FilterBar.swift`) are tap gestures on plain views: VoiceOver sees no
-  buttons, and moving the selection with the arrow keys announces nothing.
 - **Chosen sidebar folders are lost.** "Choose Folder…" in `SidebarView` keeps folders in view
   state: they vanish when the window closes or the app quits, and can't be removed.
 

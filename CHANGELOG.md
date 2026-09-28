@@ -15,3 +15,4 @@
 - Power searching: a criteria builder (⇧⌘F) with name, extension, contents, kind, path, folder, size, date, hidden and cloud criteria that round-trips to query text; name operators (`name:foo*`, `name:*foo`, `name:=foo`, `name:/regex/`), `path:` and `-ext:`; a regex builder (⌥⌘R) with building blocks, common patterns, live testing and explanations; saved searches (including regex) that can be edited, renamed, duplicated and reordered; sorting by any column including Where, Extension and Created.
 - `moria` command-line tool sharing the app's index: `index`, `watch`, `search` (`--regex`, `--semantic`, `--ask`, `--json`, `--show`), `stats`, `config`.
 - Undo (⌘Z) for Move to Trash puts the files back where they were and back in the index.
+- VoiceOver reads quick search and action palette rows as buttons, announces the row the arrow keys select, and opens or runs it on activation.

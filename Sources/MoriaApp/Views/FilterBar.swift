@@ -356,6 +356,10 @@ struct ActionPalette: View {
                                     in: RoundedRectangle(cornerRadius: 6))
                         .contentShape(Rectangle())
                         .onTapGesture { highlighted = index; runHighlighted() }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAddTraits(index == highlighted ? .isSelected : [])
+                        .accessibilityAction { highlighted = index; runHighlighted() }
                     }
                 }
                 .padding(6)
@@ -364,10 +368,17 @@ struct ActionPalette: View {
         }
         .frame(width: 420)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
-        .onKeyPress(.downArrow) { highlighted = min(highlighted + 1, max(0, filtered.count - 1)); return .handled }
-        .onKeyPress(.upArrow) { highlighted = max(highlighted - 1, 0); return .handled }
+        .onKeyPress(.downArrow) { highlight(highlighted + 1); return .handled }
+        .onKeyPress(.upArrow) { highlight(highlighted - 1); return .handled }
         .onKeyPress(.escape) { close(); return .handled }
         .onAppear { focused = true }
+    }
+
+    /// Moves the highlight; announced because focus stays in the filter field.
+    private func highlight(_ index: Int) {
+        guard !filtered.isEmpty else { return }
+        highlighted = max(0, min(index, filtered.count - 1))
+        AccessibilityNotification.Announcement(filtered[highlighted].title).post()
     }
 
     private func runHighlighted() {

@@ -130,6 +130,20 @@ struct QuickPanelView: View {
                                         close()
                                     }
                                     .onTapGesture { model.selection = [item.id] }
+                                    // One VoiceOver element per row; activating it opens the file.
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityAddTraits(model.selection.contains(item.id) ? .isSelected : [])
+                                    .accessibilityAction {
+                                        model.selection = [item.id]
+                                        model.openSelection()
+                                        close()
+                                    }
+                                    .accessibilityAction(named: "Show in Finder") {
+                                        model.selection = [item.id]
+                                        model.revealSelection()
+                                        close()
+                                    }
                                     .onAppear { model.requestDetails(for: item) }
                             }
                         }
@@ -189,6 +203,9 @@ struct QuickPanelView: View {
         guard !model.items.isEmpty else { return }
         let next = max(0, min(model.items.count - 1, (selectedIndex ?? -1) + delta))
         model.selection = [model.items[next].id]
+        // Focus stays in the text field, so VoiceOver wouldn't otherwise say what's selected.
+        let result = model.items[next].result
+        AccessibilityNotification.Announcement("\(result.name), \(Display.parent(of: result.path))").post()
     }
 
     /// The same search in the main window, in the same mode.
