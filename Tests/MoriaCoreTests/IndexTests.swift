@@ -532,4 +532,19 @@ struct IndexTests {
         #expect(state == ContentState.failed.rawValue)
         #expect(try database.pendingCount() == 0)
     }
+
+    /// Every kind of search reads through cancellable async reads, so a cancelled search stops
+    /// (on a large index, within milliseconds) instead of running to the end.
+    @Test func cancelledSearchesStop() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+        for text in ["rent", "kind:text", "hidden:no", "duplicates:yes", "similar:\(root.path)/Documents/draft.txt"] {
+            let task = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try await engine.search(QueryParser(home: root.path).parse(text))
+            }
+            await #expect(throws: CancellationError.self, "\(text)") { try await task.value }
+        }
+    }
 }

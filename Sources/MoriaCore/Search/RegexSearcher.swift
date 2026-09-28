@@ -91,8 +91,8 @@ public struct RegexSearcher: Sendable {
                         }
                         return emitted < maxFiles
                     }
-                    for hit in try matchNames(regex, filters: filters) where !emit(hit) { break }
-                    for hit in try matchExtractedText(regex, filters: filters) where !emit(hit) { break }
+                    for hit in try await matchNames(regex, filters: filters) where !emit(hit) { break }
+                    for hit in try await matchExtractedText(regex, filters: filters) where !emit(hit) { break }
                     if emitted < maxFiles {
                         for try await hit in runRipgrep(pattern: pattern, filters: filters, caseSensitive: caseSensitive) {
                             if !emit(hit) { break }
@@ -107,9 +107,11 @@ public struct RegexSearcher: Sendable {
         }
     }
 
-    private func matchNames(_ regex: NSRegularExpression, filters: SearchQuery) throws -> [RegexHit] {
+    /// Every name in the index (4 million on a large Mac) is matched here; the async read stops
+    /// when the search is cancelled.
+    private func matchNames(_ regex: NSRegularExpression, filters: SearchQuery) async throws -> [RegexHit] {
         let filter = FilterSQL(query: filters, home: NSHomeDirectory())
-        return try database.pool.read { db in
+        return try await database.pool.read { db in
             var hits: [RegexHit] = []
             let cursor = try Row.fetchCursor(db, sql: """
                 SELECT f.id, \(IndexDatabase.pathSQL) AS path, f.name FROM file f JOIN dir d ON d.id = f.dirId
@@ -125,9 +127,9 @@ public struct RegexSearcher: Sendable {
         }
     }
 
-    private func matchExtractedText(_ regex: NSRegularExpression, filters: SearchQuery) throws -> [RegexHit] {
+    private func matchExtractedText(_ regex: NSRegularExpression, filters: SearchQuery) async throws -> [RegexHit] {
         let filter = FilterSQL(query: filters, home: NSHomeDirectory())
-        return try database.pool.read { db in
+        return try await database.pool.read { db in
             var hits: [RegexHit] = []
             let cursor = try Row.fetchCursor(db, sql: """
                 SELECT f.id, \(IndexDatabase.pathSQL) AS path, t.body

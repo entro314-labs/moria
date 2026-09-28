@@ -27,11 +27,11 @@ extension SearchEngine {
         let candidates = if rest.hasTextCriteria || rest.similarTo != nil {
             try await search(rest, limit: Self.duplicateWordCandidates, semantic: semantic)
         } else {
-            try sameSizeFiles(rest)
+            try await sameSizeFiles(rest)
         }
         let bySize = Dictionary(grouping: candidates.filter { !$0.isDirectory && !$0.isCloudOnly && $0.size > 0 }, by: \.size)
             .filter { $0.value.count > 1 }
-        let cached = try cachedHashes(for: bySize.values.flatMap { $0.map(\.id) })
+        let cached = try await cachedHashes(for: bySize.values.flatMap { $0.map(\.id) })
         var computed: [Int64: (head: Data, full: Data?)] = [:]
 
         var groups: [[SearchResult]] = []
@@ -91,10 +91,10 @@ extension SearchEngine {
 
     /// Files passing the query's filters whose size another such file shares, largest sizes
     /// first. Symbolic links and cloud-only files are left out.
-    private func sameSizeFiles(_ query: SearchQuery) throws -> [SearchResult] {
+    private func sameSizeFiles(_ query: SearchQuery) async throws -> [SearchResult] {
         let filter = FilterSQL(query: query, home: home)
         let eligible = "f.isDir = 0 AND f.isCloudOnly = 0 AND f.size > 0 AND f.contentState != 7 AND \(filter.clause)"
-        return try database.pool.read { db in
+        return try await database.pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT \(Self.columns) FROM file f JOIN dir d ON d.id = f.dirId
                 WHERE \(eligible) AND f.size IN (
@@ -107,9 +107,9 @@ extension SearchEngine {
     // MARK: - Hashes
 
     /// Stored hashes still valid for the file as indexed (same size and mtime).
-    private func cachedHashes(for ids: [Int64]) throws -> [Int64: (head: Data, full: Data?)] {
+    private func cachedHashes(for ids: [Int64]) async throws -> [Int64: (head: Data, full: Data?)] {
         guard !ids.isEmpty else { return [:] }
-        return try database.pool.read { db in
+        return try await database.pool.read { db in
             var hashes: [Int64: (head: Data, full: Data?)] = [:]
             for chunk in stride(from: 0, to: ids.count, by: 500).map({ Array(ids[$0..<min($0 + 500, ids.count)]) }) {
                 let rows = try Row.fetchAll(db, sql: """

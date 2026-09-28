@@ -65,6 +65,11 @@ public struct MatchLine: Sendable, Equatable, Hashable {
 
 /// Runs searches against the index.
 ///
+/// Every database read in a search is an async GRDB read: it runs on GRDB's reader queue and,
+/// when the searching task is cancelled (a new search started, or Stop), SQLite is interrupted
+/// and `CancellationError` is thrown, so an abandoned search stops within milliseconds instead of
+/// running to the end.
+///
 /// Name and content hits come from separate FTS5 tables and are fused with reciprocal rank
 /// fusion (RRF); semantic hits join the fusion when enabled. RRF only needs each list's order,
 /// so BM25 scores from different tables never have to be compared directly.
@@ -125,7 +130,7 @@ public final class SearchEngine: Sendable {
             return try await similar(to: path, query: query, limit: limit)
         }
         guard query.hasTextCriteria else {
-            return try filterOnly(query, limit: limit)
+            return try await filterOnly(query, limit: limit)
         }
         let (nameHits, contentHits, labelHits) = try await database.pool.read { db in
             (try self.nameMatches(query, db: db, limit: limit),
@@ -144,7 +149,7 @@ public final class SearchEngine: Sendable {
         if semantic, !query.semanticText.isEmpty {
             semanticHits = try await semanticMatches(query, limit: 200)
         }
-        return try fuse(query: query, names: nameHits, contents: contentHits, labels: labelHits, semantic: semanticHits, limit: limit)
+        return try await fuse(query: query, names: nameHits, contents: contentHits, labels: labelHits, semantic: semanticHits, limit: limit)
     }
 
     // MARK: - Candidate lists
@@ -214,14 +219,14 @@ public final class SearchEngine: Sendable {
     /// filters and, when it has words, to files whose contents contain them. The file itself
     /// is left out. Uses the file's embedded chunks, averaged, as the query vector.
     private func similar(to path: String, query: SearchQuery, limit: Int) async throws -> [SearchResult] {
-        let fileID = try fileID(atPath: path)
+        let fileID = try await fileID(atPath: path)
         let index = try await vectors.index(for: database)
         guard let fileID, let vector = index.meanVector(of: fileID) else { throw SearchError.notInMeaningIndex(path) }
         var ranking = index.search(vector, limit: limit + 1)
         ranking.hits.removeAll { $0.fileID == fileID }
         let hits = Self.standouts(ranking)
         let words = (query.terms + query.contentTerms + query.nameTerms).compactMap(Self.contentTerm) + query.phrases.map(Self.quote)
-        let rows = try fetch(ids: hits.map(\.fileID), query: query, contentMatch: words.isEmpty ? nil : words.joined(separator: " AND "))
+        let rows = try await fetch(ids: hits.map(\.fileID), query: query, contentMatch: words.isEmpty ? nil : words.joined(separator: " AND "))
         return hits.compactMap { hit in
             guard var result = rows[hit.fileID] else { return nil }
             result.matchedMeaning = true
@@ -231,8 +236,8 @@ public final class SearchEngine: Sendable {
         }
     }
 
-    private func fileID(atPath path: String) throws -> Int64? {
-        try database.pool.read { db in
+    private func fileID(atPath path: String) async throws -> Int64? {
+        try await database.pool.read { db in
             try Int64.fetchOne(db, sql: """
                 SELECT f.id FROM file f JOIN dir d ON d.id = f.dirId WHERE d.path = ? AND f.name = ?
                 """, arguments: [(path as NSString).deletingLastPathComponent, (path as NSString).lastPathComponent])
@@ -256,10 +261,10 @@ public final class SearchEngine: Sendable {
     /// index, but `ORDER BY mtime` makes SQLite walk the date index instead, which can mean
     /// millions of rows for a handful of hits. So candidates are collected without ordering
     /// first; only when there are many does the date-ordered query (which then stops early) run.
-    private func filterOnly(_ query: SearchQuery, limit: Int) throws -> [SearchResult] {
+    private func filterOnly(_ query: SearchQuery, limit: Int) async throws -> [SearchResult] {
         let filter = FilterSQL(query: query, home: home)
         let candidateLimit = 20000
-        return try database.pool.read { db in
+        return try await database.pool.read { db in
             let candidates = try Row.fetchAll(db, sql: """
                 SELECT f.id, f.mtime FROM file f JOIN dir d ON d.id = f.dirId WHERE \(filter.clause) LIMIT ?
                 """, arguments: filter.arguments + [candidateLimit])
@@ -285,7 +290,7 @@ public final class SearchEngine: Sendable {
     private func fuse(
         query: SearchQuery, names: [SearchResult], contents: [SearchResult], labels: [SearchResult],
         semantic: [(fileID: Int64, chunk: Int)], limit: Int
-    ) throws -> [SearchResult] {
+    ) async throws -> [SearchResult] {
         var byID: [Int64: SearchResult] = [:]
         func add(_ hit: SearchResult, rank: Int, weight: Double) {
             let contribution = weight / (Self.fusionK + Double(rank + 1))
@@ -312,7 +317,7 @@ public final class SearchEngine: Sendable {
             add(hit, rank: rank, weight: Self.labelWeight)
         }
         if !semantic.isEmpty {
-            let rows = try fetch(ids: semantic.map(\.fileID), query: query)
+            let rows = try await fetch(ids: semantic.map(\.fileID), query: query)
             for (rank, match) in semantic.enumerated() {
                 guard var hit = rows[match.fileID] else { continue }
                 hit.matchedMeaning = true
@@ -350,20 +355,21 @@ public final class SearchEngine: Sendable {
     /// Metadata for specific files (e.g. regex hits), keyed by id.
     public func metadata(for ids: [Int64]) async throws -> [Int64: SearchResult] {
         guard !ids.isEmpty else { return [:] }
-        let marked = try markOffline(Array(try fetch(ids: ids, query: SearchQuery()).values))
+        let marked = try markOffline(Array(try await fetch(ids: ids, query: SearchQuery()).values))
         return Dictionary(uniqueKeysWithValues: marked.map { ($0.id, $0) })
     }
 
     /// Rows for `ids` that pass the query's filters and, with `contentMatch`, whose contents
     /// match that FTS expression.
-    private func fetch(ids: [Int64], query: SearchQuery, contentMatch: String? = nil) throws -> [Int64: SearchResult] {
+    private func fetch(ids: [Int64], query: SearchQuery, contentMatch: String? = nil) async throws -> [Int64: SearchResult] {
         guard !ids.isEmpty else { return [:] }
-        var filter = FilterSQL(query: query, home: home)
+        var conditions = FilterSQL(query: query, home: home)
         if let contentMatch {
-            filter.add("f.id IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)", contentMatch)
+            conditions.add("f.id IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)", contentMatch)
         }
+        let filter = conditions
         let idList = ids.map(String.init).joined(separator: ",")
-        return try database.pool.read { db in
+        return try await database.pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT \(Self.columns) FROM file f JOIN dir d ON d.id = f.dirId
                 WHERE f.id IN (\(idList)) AND \(filter.clause)
