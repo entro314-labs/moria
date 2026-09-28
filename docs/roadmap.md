@@ -11,9 +11,6 @@ are never edited.
 
 Defects found in a review against Apple's macOS guidelines. They come before new work.
 
-- **Undo Move to Trash.** `SearchModel.moveSelectionToTrash` gets back where each file went but
-  registers no undo, so ⌘Z doesn't put files back as it does in Finder. Undo moves each file
-  back and re-applies it to the index, the same way trashing removes it.
 - **Quick search and action palette rows for VoiceOver.** Rows in `QuickPanel.swift` and
   `ActionPalette` (`FilterBar.swift`) are tap gestures on plain views: VoiceOver sees no
   buttons, and moving the selection with the arrow keys announces nothing.

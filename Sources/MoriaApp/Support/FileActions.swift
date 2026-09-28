@@ -22,6 +22,33 @@ enum FileActions {
         NSPasteboard.general.writeObjects(urls as [NSURL])
     }
 
+    /// Moves trashed files back where they were (`trashed` maps each original location to its
+    /// place in the Trash, as `NSWorkspace.recycle` returns it). Stops at the first file that
+    /// can't go back, such as one whose original location is taken again; files already moved
+    /// stay restored. Returns the restored original locations.
+    static func putBack(_ trashed: [URL: URL]) throws -> [URL] {
+        var restored: [URL] = []
+        for (original, inTrash) in trashed.sorted(by: { $0.key.path < $1.key.path }) {
+            do {
+                try FileManager.default.moveItem(at: inTrash, to: original)
+            } catch {
+                throw PutBackError(file: original, restored: restored, underlying: error)
+            }
+            restored.append(original)
+        }
+        return restored
+    }
+
+    struct PutBackError: Error, LocalizedError {
+        var file: URL
+        var restored: [URL]
+        var underlying: any Error
+
+        var errorDescription: String? {
+            "“\(file.lastPathComponent)” couldn't be put back: \(underlying.localizedDescription)"
+        }
+    }
+
     static func openTerminal(at url: URL) {
         let folder = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
         guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }

@@ -214,25 +214,64 @@ final class SearchModel {
         if let text = request.text { self.text = text }
     }
 
-    /// Moves the selected files to the Trash and drops them from the results.
+    /// The window's undo manager, for Move to Trash.
+    weak var undoManager: UndoManager?
+
+    /// Moves the selected files to the Trash and drops them from the results. Undo puts them back.
     func moveSelectionToTrash() {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
+        trash(urls)
+    }
+
+    private func trash(_ urls: [URL]) {
         Task {
             do {
                 let trashed = try await NSWorkspace.shared.recycle(urls)
                 let removed = Set(trashed.keys.map(\.path))
                 items.removeAll { removed.contains($0.result.path) }
                 selection = selection.filter { id in items.contains { $0.id == id } }
-                do {
-                    // The index updates directly: the event stream ignores Moria's own changes.
-                    try await app.controller.apply(removed.map { FileChange(path: $0, rescanSubtree: false) })
-                } catch {
-                    app.lastError = "The index couldn't be updated after moving to the Trash: \(error)"
+                undoManager?.registerUndo(withTarget: self) { model in
+                    MainActor.assumeIsolated { model.putBack(trashed) }
                 }
+                undoManager?.setActionName("Move to Trash")
+                await updateIndex(removed.sorted())
             } catch {
                 message = "Couldn't move to the Trash: \(error.localizedDescription)"
             }
+        }
+    }
+
+    /// Undo of Move to Trash: the files go back where they were and the search runs again, so
+    /// they reappear. Redo trashes them again.
+    private func putBack(_ trashed: [URL: URL]) {
+        let restored: [URL]
+        do {
+            restored = try FileActions.putBack(trashed)
+        } catch let error as FileActions.PutBackError {
+            restored = error.restored
+            app.lastError = error.localizedDescription
+        } catch {
+            app.lastError = error.localizedDescription
+            return
+        }
+        guard !restored.isEmpty else { return }
+        undoManager?.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { model.trash(restored) }
+        }
+        undoManager?.setActionName("Move to Trash")
+        Task {
+            await updateIndex(restored.map(\.path))
+            search(debounce: false)
+        }
+    }
+
+    /// The index updates directly: the event stream ignores Moria's own changes.
+    private func updateIndex(_ paths: [String]) async {
+        do {
+            try await app.controller.apply(paths.map { FileChange(path: $0, rescanSubtree: true) })
+        } catch {
+            app.lastError = "The index couldn't be updated after moving files: \(error)"
         }
     }
 

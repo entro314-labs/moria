@@ -10,6 +10,7 @@ struct MainView: View {
     @State private var exporting = false
     @State private var window: NSWindow?
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.undoManager) private var undoManager
     @State private var showSyntax = false
     @State private var saveName = ""
     @FocusState private var searchFocused: Bool
@@ -66,6 +67,7 @@ struct MainView: View {
         }
         .onAppear {
             searchFocused = true
+            model.undoManager = undoManager
             AppDelegate.openMainWindow = { openWindow(id: "main") }
             if let request = AppDelegate.pendingRequest {
                 AppDelegate.pendingRequest = nil

@@ -43,5 +43,9 @@ let package = Package(
             name: "MoriaCoreTests",
             dependencies: ["MoriaCore"]
         ),
+        .testTarget(
+            name: "MoriaAppTests",
+            dependencies: ["MoriaApp"]
+        ),
     ]
 )
