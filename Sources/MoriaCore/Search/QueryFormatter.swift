@@ -36,6 +36,7 @@ public struct QueryFormatter: Sendable {
         parts += query.excludedFolders.map { "-in:" + quotedIfNeeded(abbreviate($0)) }
         if let hidden = query.hidden { parts.append("hidden:" + (hidden ? "yes" : "no")) }
         if let cloud = query.cloudOnly { parts.append("cloud:" + (cloud ? "yes" : "no")) }
+        if let similar = query.similarTo { parts.append("similar:" + quotedIfNeeded(abbreviate(similar))) }
         return parts.joined(separator: " ")
     }
 

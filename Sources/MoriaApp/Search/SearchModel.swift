@@ -222,6 +222,13 @@ final class SearchModel {
         if let text = request.text { self.text = text }
     }
 
+    /// Documents close in meaning to the file at `path` (a `similar:` search).
+    func findSimilar(to path: String) {
+        var query = SearchQuery()
+        query.similarTo = path
+        show(SearchRequest(text: QueryFormatter().string(from: query), scope: .everything))
+    }
+
     /// Folders dropped on the window: searches inside the first one, as a Location does.
     /// Returns false when nothing dropped is a folder.
     func searchInside(_ urls: [URL]) -> Bool {
@@ -813,7 +820,7 @@ final class SearchModel {
     private static let filterKeys: [(key: String, help: String)] = [
         ("kind:", "file type"), ("ext:", "extension"), ("size:", "file size"), ("modified:", "date modified"),
         ("created:", "date created"), ("in:", "folder"), ("name:", "name only"), ("content:", "contents only"),
-        ("hidden:", "hidden files"), ("cloud:", "cloud-only files"),
+        ("hidden:", "hidden files"), ("cloud:", "cloud-only files"), ("similar:", "documents like a file"),
     ]
 
     private static func values(for key: String, roots: [String]) -> [(value: String, help: String)] {

@@ -167,6 +167,9 @@ private struct InfoPane: View {
                 Button("Copy Path") { FileActions.copyPaths([result.url]) }
                 Button("Copy File") { FileActions.copyFiles([result.url]) }
                 Button("Search in This Folder") { model.filters.folder = (result.path as NSString).deletingLastPathComponent }
+                if model.canUseMeaning {
+                    Button("Find Similar") { model.findSimilar(to: result.path) }
+                }
                 Button("Open in Terminal") { FileActions.openTerminal(at: result.url) }
             } label: {
                 Label("More", systemImage: "ellipsis")

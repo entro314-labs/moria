@@ -402,4 +402,40 @@ struct IndexTests {
         // Small index: one deviation.
         #expect(SearchEngine.standouts(VectorIndex.Ranking(hits: [.init(fileID: 1, score: 0.84, chunk: 0), .init(fileID: 2, score: 0.79, chunk: 0)], mean: 0.75, deviation: 0.056, count: 5)).map(\.fileID) == [1])
     }
+
+    @Test func similarRanksDocumentsCloseInMeaningAndLeavesOutTheFile() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        func id(_ path: String) async throws -> Int64 {
+            try await database.pool.read { db in
+                try Int64.fetchOne(db, sql: "SELECT f.id FROM file f JOIN dir d ON d.id = f.dirId WHERE d.path || '/' || f.name = ?",
+                                   arguments: [root.path + "/" + path])!
+            }
+        }
+        func unit(_ values: [Float]) -> [Float] {
+            let norm = sqrt(values.reduce(0) { $0 + $1 * $1 })
+            return values.map { $0 / norm }
+        }
+        let receipt = try await id("Documents/Taxes/receipt.txt")
+        let draft = try await id("Documents/draft.txt")
+        try database.storeEmbeddings([
+            (receipt, [(0, unit([1, 0, 0, 0]))]),
+            (draft, [(0, unit([0.95, 0.05, 0, 0]))]),
+            (try await id("Documents/greek-note.md"), [(0, unit([0, 1, 0, 0]))]),
+            (try await id("Documents/Billing.swift"), [(0, unit([0, 0, 1, 0]))]),
+            (try await id("App/build/output.txt"), [(0, unit([0, 0, 0, 1]))]),
+        ])
+        let engine = SearchEngine(database: database, home: root.path)
+        let similar = try await engine.search(QueryParser(home: root.path).parse("similar:\(root.path)/Documents/Taxes/receipt.txt"))
+        #expect(similar.map(\.id) == [draft])
+        #expect(similar.first?.matchedMeaning == true)
+        // Filters and words narrow the matches.
+        #expect(try await engine.search(QueryParser(home: root.path).parse("similar:\(root.path)/Documents/Taxes/receipt.txt ext:md")).isEmpty)
+        #expect(try await engine.search(QueryParser(home: root.path).parse("draft similar:\(root.path)/Documents/Taxes/receipt.txt")).map(\.id) == [draft])
+        #expect(try await engine.search(QueryParser(home: root.path).parse("apartment similar:\(root.path)/Documents/Taxes/receipt.txt")).isEmpty)
+        // A file without vectors can't be a starting point.
+        await #expect(throws: SearchEngine.SearchError.self) {
+            try await engine.search(QueryParser(home: root.path).parse("similar:\(root.path)/Tools.app"))
+        }
+    }
 }

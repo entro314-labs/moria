@@ -22,3 +22,4 @@
 - The Delete key removes the selected saved search, and ⌘Z brings a deleted saved search back.
 - Edit › Next Match and Previous Match (⌘G / ⇧⌘G) step through the matching lines in the preview.
 - Dropping a folder from Finder on a Moria window searches inside it.
+- Find Similar (with Meaning on): `similar:<file>` lists the documents closest in meaning to a file, narrowed by any filters or words; in the File menu, the action palette and result context menus, and in the CLI.

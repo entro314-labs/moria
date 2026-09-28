@@ -7,7 +7,7 @@ import Foundation
 /// different attributes; values within one row can list alternatives, e.g. `pdf, docx`).
 public struct Criterion: Identifiable, Equatable, Sendable {
     public enum Attribute: String, CaseIterable, Identifiable, Sendable {
-        case words, name, ext, contents, kind, path, folder, size, modified, created, hidden, cloud
+        case words, name, ext, contents, kind, path, folder, size, modified, created, hidden, cloud, similar
 
         public var id: String { rawValue }
         public var title: String {
@@ -24,6 +24,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .created: "Date Created"
             case .hidden: "Hidden Files"
             case .cloud: "Cloud-Only Files"
+            case .similar: "Similar To"
             }
         }
 
@@ -32,6 +33,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
             case .words: [.contains, .containsPhrase, .doesNotContain]
             case .name: [.contains, .beginsWith, .endsWith, .isExactly, .matchesRegex]
             case .ext, .kind, .folder: [.is, .isNot]
+            case .similar: [.is]
             case .contents: [.contains, .containsPhrase]
             case .path: [.contains]
             case .size: [.greaterThan, .lessThan, .between]
@@ -72,7 +74,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
     public var id = UUID()
     public var attribute: Attribute
     public var op: Operator
-    /// Text, number, kind name, folder path or `yyyy-MM-dd` date, depending on the attribute.
+    /// Text, number, kind name, folder or file path, or `yyyy-MM-dd` date, depending on the attribute.
     public var value: String
     /// Upper bound for `between`.
     public var value2: String
@@ -133,6 +135,7 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         case (.path, _): return "path:" + quoted(value)
         case (.folder, .is): return "in:" + quoted(value)
         case (.folder, _): return "-in:" + quoted(value)
+        case (.similar, _): return "similar:" + quoted(value)
         case (.size, .greaterThan): return "size:>\(value)\(unit)"
         case (.size, .lessThan): return "size:<\(value)\(unit)"
         case (.size, _):
@@ -190,6 +193,8 @@ public struct Criterion: Identifiable, Equatable, Sendable {
         case "content" where !negated, "text" where !negated:
             return Criterion(attribute: .contents, op: value.contains(" ") ? .containsPhrase : .contains, value: value)
         case "path" where !negated: return Criterion(attribute: .path, op: .contains, value: value)
+        case "similar" where !negated, "like" where !negated:
+            return Criterion(attribute: .similar, value: value.hasPrefix("~") ? home + value.dropFirst() : value)
         case "in", "folder":
             let expanded = value.hasPrefix("~") ? home + value.dropFirst() : value
             return Criterion(attribute: .folder, op: negated ? .isNot : .is, value: expanded)

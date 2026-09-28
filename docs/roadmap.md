@@ -11,9 +11,6 @@ are never edited.
 
 - **Finder tags.** A `tag:` filter, a Tags column and a tag criterion. Needs tags stored per file
   (migration) and a check that tag changes reach the index through FSEvents.
-- **More like this.** With Meaning on, find documents close to a selected result. The vectors
-  are already in `VectorIndex`; this needs a search entry point that starts from a file instead
-  of a query.
 - **Labels for photos.** Vision's image classification (the SDK has `VNClassifyImageRequest`)
   turns photos into searchable words ("beach", "receipt", "dog"), next to the text already
   recognized in images. A setting beside OCR; decide whether labels share the content index or

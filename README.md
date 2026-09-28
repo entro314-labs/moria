@@ -7,7 +7,7 @@ Deep search for macOS: every file name, the text inside documents, PDFs, code an
 - **Regex** over names, contents and extracted document text (bundled ripgrep).
 - **Live** — follows filesystem events and catches up on changes made while it wasn't running.
 - **Ask** (optional) — plain-language requests turned into editable filters by Apple's on-device model.
-- **Meaning** (optional) — finds documents related to your words, with the closest passage, using on-device embeddings.
+- **Meaning** (optional) — finds documents related to your words, with the closest passage, using on-device embeddings; **Find Similar** lists the documents closest to a selected one.
 
 ## Using it
 
@@ -29,6 +29,7 @@ size:>10mb  size:1mb..5mb              size
 modified:<7d  modified:2026-03..2026-05  created:2025
 in:~/Documents  -in:~/Library          folders
 hidden:no  cloud:no
+similar:~/Documents/lease.pdf          documents close in meaning (Meaning on)
 ```
 
 ## Command line

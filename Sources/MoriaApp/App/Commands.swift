@@ -39,6 +39,8 @@ struct MoriaCommands: Commands {
             Button("Quick Look") { model?.toggleQuickLook() }
                 .keyboardShortcut("y")
                 .disabled(noSelection)
+            Button("Find Similar") { if let path = model?.selectedURLs.first?.path { model?.findSimilar(to: path) } }
+                .disabled(model?.canUseMeaning != true || model?.selection.count != 1)
             Button("Actions…") { model?.showActions.toggle() }
                 .keyboardShortcut("k")
                 .disabled(noSelection)

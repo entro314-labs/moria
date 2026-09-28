@@ -200,6 +200,16 @@ private struct CriterionRow: View {
                     if panel.runModal() == .OK, let url = panel.url { criterion.value = url.path }
                 }
             }
+        case .similar:
+            HStack {
+                TextField("File", text: $criterion.value)
+                Button("Choose…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = true
+                    panel.canChooseDirectories = false
+                    if panel.runModal() == .OK, let url = panel.url { criterion.value = url.path }
+                }
+            }
         case .size:
             HStack {
                 TextField("Size", text: $criterion.value).frame(width: 70)

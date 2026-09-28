@@ -36,6 +36,8 @@ public struct SearchQuery: Sendable, Equatable {
     /// nil = don't care.
     public var hidden: Bool?
     public var cloudOnly: Bool?
+    /// `similar:`: rank documents by closeness in meaning to this file (semantic index).
+    public var similarTo: String?
 
     public init() {}
 
@@ -50,7 +52,7 @@ public struct SearchQuery: Sendable, Equatable {
     }
 
     public var isEmpty: Bool {
-        !hasTextCriteria && !hasFilters && excludedTerms.isEmpty
+        !hasTextCriteria && !hasFilters && excludedTerms.isEmpty && similarTo == nil
     }
 
     /// The words a semantic query should embed.
@@ -97,7 +99,7 @@ public enum NamePattern: Sendable, Equatable, Hashable {
 ///     invoice "rent receipt" -draft ext:pdf,docx kind:image size:>10mb size:1mb..5mb
 ///     modified:<7d modified:2026-03..2026-05 created:today in:~/Documents name:2024
 ///     content:lease hidden:no cloud:no -in:~/Library -kind:image -ext:tmp path:invoices
-///     name:report* name:*.draft name:=README name:/^IMG_\d{4}$/
+///     name:report* name:*.draft name:=README name:/^IMG_\d{4}$/ similar:~/Documents/lease.pdf
 ///
 /// Unknown `key:value` tokens are treated as plain terms so URLs and times still search.
 public struct QueryParser: Sendable {
@@ -195,6 +197,9 @@ public struct QueryParser: Sendable {
         case "cloud":
             guard let flag = Self.bool(value) else { return false }
             query.cloudOnly = flag
+            return true
+        case "similar", "like":
+            query.similarTo = expand(value)
             return true
         default:
             return false

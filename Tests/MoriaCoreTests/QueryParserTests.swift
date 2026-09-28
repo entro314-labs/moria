@@ -162,3 +162,19 @@ extension QueryParserTests {
         #expect(settings.maxContentKilobytes == MoriaSettings.defaults().maxContentKilobytes)
     }
 }
+
+extension QueryParserTests {
+    @Test func similarNamesAFileAndRoundTrips() {
+        let query = parser.parse(#"lease similar:"~/My Files/offer.pdf" kind:pdf"#)
+        #expect(query.similarTo == "/Users/test/My Files/offer.pdf")
+        #expect(query.terms == ["lease"])
+        #expect(!query.isEmpty)
+        #expect(parser.parse("similar:~/a.pdf").isEmpty == false)
+        let formatter = QueryFormatter(calendar: calendar, home: "/Users/test")
+        #expect(parser.parse(formatter.string(from: query)) == query)
+        #expect(parser.chips(for: "similar:~/Documents/offer.pdf").map(\.label) == ["Similar to offer.pdf"])
+        let criteria = Criterion.criteria(from: #"similar:"~/My Files/offer.pdf""#, home: "/Users/test")
+        #expect(criteria.map(\.attribute) == [.similar])
+        #expect(parser.parse(Criterion.query(from: criteria)).similarTo == "/Users/test/My Files/offer.pdf")
+    }
+}

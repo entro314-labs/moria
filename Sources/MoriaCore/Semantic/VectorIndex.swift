@@ -72,6 +72,22 @@ final class VectorIndex: Sendable {
         var count: Int
     }
 
+    /// The mean of a file's chunk vectors, normalized: the file as one point to search from.
+    /// Nil when the file has no vectors.
+    func meanVector(of fileID: Int64) -> [Float]? {
+        var sum = [Float](repeating: 0, count: dimension)
+        var found = false
+        for (index, id) in fileIDs.enumerated() where id == fileID {
+            found = true
+            for offset in 0..<dimension {
+                sum[offset] += Float(vectors[index * dimension + offset])
+            }
+        }
+        guard found else { return nil }
+        let norm = sqrt(sum.reduce(0) { $0 + $1 * $1 })
+        return norm > 0 ? sum.map { $0 / norm } : nil
+    }
+
     func search(_ query: [Float], limit: Int) -> Ranking {
         guard !fileIDs.isEmpty, query.count == dimension else { return Ranking(hits: [], mean: 0, deviation: 0, count: 0) }
         let blockRows = 4096

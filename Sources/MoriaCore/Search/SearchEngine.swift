@@ -70,8 +70,25 @@ public final class SearchEngine: Sendable {
     static let contentWeight = 1.0
     static let semanticWeight = 0.9
 
+    public enum SearchError: Error, CustomStringConvertible, LocalizedError {
+        /// `similar:` names a file the semantic index doesn't cover.
+        case notInMeaningIndex(String)
+
+        public var description: String {
+            switch self {
+            case let .notInMeaningIndex(path):
+                "“\((path as NSString).lastPathComponent)” isn't in the meaning index. Turn on Meaning in Settings › Intelligence; it covers documents, PDFs, notes and recognized text outside Library and hidden folders."
+            }
+        }
+
+        public var errorDescription: String? { description }
+    }
+
     public func search(_ query: SearchQuery, limit: Int = 500, semantic: Bool = false) async throws -> [SearchResult] {
         guard !query.isEmpty else { return [] }
+        if let path = query.similarTo {
+            return try await similar(to: path, query: query, limit: limit)
+        }
         guard query.hasTextCriteria else {
             return try filterOnly(query, limit: limit)
         }
@@ -143,6 +160,35 @@ public final class SearchEngine: Sendable {
         let index = try await vectors.index(for: database)
         let ranking = index.search(vector, limit: limit)
         return Self.standouts(ranking).map { ($0.fileID, $0.chunk) }
+    }
+
+    /// Documents closest in meaning to the file at `path`, best first, narrowed by the query's
+    /// filters and, when it has words, to files whose contents contain them. The file itself
+    /// is left out. Uses the file's embedded chunks, averaged, as the query vector.
+    private func similar(to path: String, query: SearchQuery, limit: Int) async throws -> [SearchResult] {
+        let fileID = try fileID(atPath: path)
+        let index = try await vectors.index(for: database)
+        guard let fileID, let vector = index.meanVector(of: fileID) else { throw SearchError.notInMeaningIndex(path) }
+        var ranking = index.search(vector, limit: limit + 1)
+        ranking.hits.removeAll { $0.fileID == fileID }
+        let hits = Self.standouts(ranking)
+        let words = (query.terms + query.contentTerms + query.nameTerms).compactMap(Self.prefixTerm) + query.phrases.map(Self.quote)
+        let rows = try fetch(ids: hits.map(\.fileID), query: query, contentMatch: words.isEmpty ? nil : words.joined(separator: " AND "))
+        return hits.compactMap { hit in
+            guard var result = rows[hit.fileID] else { return nil }
+            result.matchedMeaning = true
+            result.meaningChunk = hit.chunk
+            result.score = Double(hit.score)
+            return result
+        }
+    }
+
+    private func fileID(atPath path: String) throws -> Int64? {
+        try database.pool.read { db in
+            try Int64.fetchOne(db, sql: """
+                SELECT f.id FROM file f JOIN dir d ON d.id = f.dirId WHERE d.path = ? AND f.name = ?
+                """, arguments: [(path as NSString).deletingLastPathComponent, (path as NSString).lastPathComponent])
+        }
     }
 
     /// Hits that stand out from the corpus. Absolute cosine values shift with query length
@@ -254,8 +300,14 @@ public final class SearchEngine: Sendable {
         return try fetch(ids: ids, query: SearchQuery())
     }
 
-    private func fetch(ids: [Int64], query: SearchQuery) throws -> [Int64: SearchResult] {
-        let filter = FilterSQL(query: query, home: home)
+    /// Rows for `ids` that pass the query's filters and, with `contentMatch`, whose contents
+    /// match that FTS expression.
+    private func fetch(ids: [Int64], query: SearchQuery, contentMatch: String? = nil) throws -> [Int64: SearchResult] {
+        guard !ids.isEmpty else { return [:] }
+        var filter = FilterSQL(query: query, home: home)
+        if let contentMatch {
+            filter.add("f.id IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)", contentMatch)
+        }
         let idList = ids.map(String.init).joined(separator: ",")
         return try database.pool.read { db in
             let rows = try Row.fetchAll(db, sql: """

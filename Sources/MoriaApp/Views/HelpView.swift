@@ -85,6 +85,7 @@ struct HelpView: View {
             paragraph("Turn these on in Settings › Intelligence. Both use Apple's on-device models; nothing is sent anywhere.")
             paragraph("**Ask** turns a request such as “invoices about rent from last spring over 1 MB” into filters. The filters appear as chips so you can check them, remove one, or choose **Edit as Query** to fine-tune the text.")
             paragraph("**Meaning** also finds documents related to your words even when the exact words don't appear, and shows the closest passage. It covers documents, PDFs, notes and recognized text in Latin-script languages.")
+            paragraph("**Find Similar** (File menu, ⌘K or a result's context menu) lists the documents closest in meaning to the selected one. It's the query `similar:` followed by the file's path, so filters and words narrow it and it can be saved.")
         case .integration:
             paragraph("**Services:** select text in any app, or a folder in Finder, and choose Services › Search with Moria (or Search in Folder with Moria).")
             paragraph("**Drag and drop:** drop a folder from Finder on a Moria window to search inside it. Drag results out to Finder or any app.")
@@ -129,6 +130,7 @@ struct SyntaxTable: View {
         ("created:2025", "creation date"),
         ("in:~/Documents  -in:~/Library", "inside or outside a folder"),
         ("hidden:no  cloud:no", "skip hidden files or cloud-only files"),
+        ("similar:~/Documents/lease.pdf", "documents close in meaning to a file (Meaning on)"),
     ]
 
     var body: some View {

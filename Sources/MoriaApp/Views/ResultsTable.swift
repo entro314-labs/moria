@@ -314,6 +314,10 @@ struct ResultsTable: NSViewRepresentable {
                 }
                 table.togglePreview()
             }
+            if urls.count == 1, model.canUseMeaning {
+                let path = urls[0].path
+                add("Find Similar", "sparkles") { [weak self] in self?.model.findSimilar(to: path) }
+            }
             menu.addItem(.separator())
             add("Copy Path", "doc.on.clipboard") { FileActions.copyPaths(urls) }
             add("Copy File", "doc.on.doc") { FileActions.copyFiles(urls) }

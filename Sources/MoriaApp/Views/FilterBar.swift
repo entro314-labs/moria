@@ -351,6 +351,9 @@ struct ActionPalette: View {
             model.filters.folder = folder
         })
         list.append(Action(title: "Open in Terminal", symbol: "terminal", shortcut: "") { FileActions.openTerminal(at: first) })
+        if model.canUseMeaning, urls.count == 1 {
+            list.append(Action(title: "Find Similar", symbol: "sparkles", shortcut: "") { model.findSimilar(to: first.path) })
+        }
         return list
     }
 
