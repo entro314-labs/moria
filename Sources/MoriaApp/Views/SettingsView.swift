@@ -311,12 +311,22 @@ private struct NameList: View {
     let names: [String]
     let onChange: ([String]) -> Void
     @State private var text = ""
+    @FocusState private var editing: Bool
 
     var body: some View {
         TextField("Folder names (comma-separated)", text: $text)
+            .focused($editing)
             .onAppear { text = names.joined(separator: ", ") }
-            .onSubmit {
-                onChange(text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
-            }
+            // Restore Defaults (or `moria config`) changes the names while the field shows the
+            // old ones; follow them, unless an edit is under way.
+            .onChange(of: names) { if !editing { text = names.joined(separator: ", ") } }
+            .onSubmit(commit)
+            // Leaving the field keeps the edit too, as the other controls in the pane do.
+            .onChange(of: editing) { if !editing { commit() } }
+    }
+
+    private func commit() {
+        let edited = text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        if edited != names { onChange(edited) }
     }
 }
