@@ -39,3 +39,5 @@
 - Folders chosen with Choose Folder… (filter bar, sidebar, criteria builder) and files chosen for Similar To are matched by the path the filesystem reports, so a folder reached through a link (`~/Dropbox`, `/tmp`) finds its files like a dropped folder does.
 - The criteria builder's match count uses the window's mode and filters (or the saved search's when editing), as Search does.
 - `moria mcp` also speaks the 2026-07-28 protocol revision, which drops the `initialize` handshake: it answers `server/discover`, serves requests that name their protocol version in `_meta`, and refuses other versions with the ones it supports. Handshake clients (2025-11-25 and earlier) work as before.
+- `moria search --regex` takes `--filters "ext:swift in:~/Code"` to narrow the files, as the app's filters and the MCP tool's `filters` do.
+- Settings › Locations and Contents: the folder-name lists keep an edit when the field loses focus, not only on Return.

@@ -43,7 +43,7 @@ similar:~/Documents/lease.pdf          documents close in meaning (Meaning on)
 
 ```
 moria search "lease agreement" --json
-moria search --regex 'INV-\d{4}-\d+'
+moria search --regex 'INV-\d{4}-\d+' --filters "ext:pdf in:~/Documents"
 moria search --ask "pdf invoices from last spring"
 moria search "budget" --show          # open the results in the app
 moria index | watch | stats | config --set semanticSearchEnabled=true

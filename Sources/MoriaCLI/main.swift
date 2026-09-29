@@ -124,6 +124,8 @@ struct Search: AsyncParsableCommand {
     var limit = 30
     @Flag(help: "Treat the query as a regular expression over file contents and names.")
     var regex = false
+    @Option(help: "With --regex: filters in the query syntax that narrow the files, e.g. \"ext:swift in:~/Code\".")
+    var filters: String?
     @Flag(help: "Blend in semantic (meaning-based) matches. Requires embeddings.")
     var semantic = false
     @Flag(help: "Interpret the query as a plain-language request with the on-device model.")
@@ -151,9 +153,10 @@ struct Search: AsyncParsableCommand {
         let db = try database.open()
         let started = Date()
         if regex {
-            try await runRegex(db: db, pattern: text)
+            try await runRegex(db: db, pattern: text, filters: QueryParser().parse(filters ?? ""))
             return
         }
+        guard filters == nil else { throw ValidationError("--filters applies to --regex searches; put filters in the query otherwise.") }
         var parsed = QueryParser().parse(text)
         if ask {
             do {
@@ -188,10 +191,10 @@ struct Search: AsyncParsableCommand {
         }
     }
 
-    private func runRegex(db: IndexDatabase, pattern: String) async throws {
+    private func runRegex(db: IndexDatabase, pattern: String, filters: SearchQuery) async throws {
         var count = 0
         let searcher = try RegexSearcher(database: db)
-        for try await hit in searcher.search(pattern: pattern, filters: SearchQuery(), maxFiles: limit) {
+        for try await hit in searcher.search(pattern: pattern, filters: filters, maxFiles: limit) {
             count += 1
             if json {
                 let lines = hit.lines.map { ["line": $0.number, "text": $0.text] as [String: Any] }
