@@ -65,15 +65,28 @@ public enum JSONValue: Codable, Sendable, Equatable {
 /// syntax, with a names/contents mode and meaning), `regex_search` and `index_status`. The
 /// transport (stdin/stdout) lives in the CLI; this type only turns a request line into a
 /// response line, so it can be tested without a process.
+///
+/// Serves both protocol eras: clients that open with an `initialize` handshake (revisions up
+/// to 2025-11-25) and clients that name the protocol version in every request's `_meta`
+/// (2026-07-28 on), which probe with `server/discover` first. Every request is answered on its
+/// own, so nothing depends on which era opened the process.
 public struct MCPServer: Sendable {
     public let database: IndexDatabase
     let engine: SearchEngine
     let version: String
     let home: String
 
-    /// Protocol revisions this server implements; a client asking for another gets the newest.
+    /// Handshake revisions this server implements; a client asking for another gets the newest.
     static let protocolVersions = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"]
+    /// Revisions carried per request in `_meta`; a request naming another is refused with the
+    /// list, and the client picks one of these.
+    static let modernVersions = ["2026-07-28"]
+    static let protocolVersionKey = "io.modelcontextprotocol/protocolVersion"
+    static let clientCapabilitiesKey = "io.modelcontextprotocol/clientCapabilities"
+    static let serverInfoKey = "io.modelcontextprotocol/serverInfo"
     static let maxResults = 200
+    /// The tools never change, so clients may keep the list for an hour.
+    static let listTTLMilliseconds = 3_600_000
 
     public init(database: IndexDatabase, version: String, home: String = NSHomeDirectory()) {
         self.database = database
@@ -98,6 +111,7 @@ public struct MCPServer: Sendable {
     struct ErrorObject: Encodable {
         var code: Int
         var message: String
+        var data: JSONValue?
     }
 
     /// The response to one message, or nil for a notification (a message without an id).
@@ -109,11 +123,27 @@ public struct MCPServer: Sendable {
             return encode(Response(id: .null, error: ErrorObject(code: -32700, message: "Parse error: \(error.localizedDescription)")))
         }
         guard let id = request.id else { return nil }
+        let params = request.params ?? .object([:])
+        // A request that names its protocol version is served statelessly, as that revision
+        // describes; `server/discover` is that era's probe and always answers in its form.
+        let requested = params["_meta"]?[Self.protocolVersionKey]?.string
+        let modern = requested != nil || request.method == "server/discover"
         do {
-            let result = try await respond(to: request.method, params: request.params ?? .object([:]))
+            if let requested {
+                guard Self.modernVersions.contains(requested) else {
+                    throw RPCError(code: -32022, message: "Unsupported protocol version", data: .object([
+                        "supported": .array(Self.modernVersions.map(JSONValue.string)), "requested": .string(requested),
+                    ]))
+                }
+                guard params["_meta"]?[Self.clientCapabilitiesKey] != nil else {
+                    throw RPCError(code: -32602, message: "Invalid params: _meta has no \(Self.clientCapabilitiesKey)")
+                }
+            }
+            var result = try await respond(to: request.method, params: params, modern: modern)
+            if modern { result = complete(result) }
             return encode(Response(id: id, result: result))
         } catch let error as RPCError {
-            return encode(Response(id: id, error: ErrorObject(code: error.code, message: error.message)))
+            return encode(Response(id: id, error: ErrorObject(code: error.code, message: error.message, data: error.data)))
         } catch {
             return encode(Response(id: id, error: ErrorObject(code: -32603, message: String(describing: error))))
         }
@@ -122,27 +152,53 @@ public struct MCPServer: Sendable {
     struct RPCError: Error {
         var code: Int
         var message: String
+        var data: JSONValue?
     }
 
-    private func respond(to method: String, params: JSONValue) async throws -> JSONValue {
+    static let instructions = """
+        Moria searches this Mac's own file index: every file and folder name, the text inside \
+        documents, PDFs, code and images, and (when turned on) meaning. Use `search` first; its \
+        query syntax combines words with filters. Results are local paths.
+        """
+    static let capabilities: JSONValue = .object(["tools": .object(["listChanged": .bool(false)])])
+    private var serverInfo: JSONValue { .object(["name": .string("moria"), "version": .string(version)]) }
+
+    /// A result as the per-request era expects it: marked complete, with the server named.
+    private func complete(_ result: JSONValue) -> JSONValue {
+        guard case var .object(fields) = result else { return result }
+        fields["resultType"] = .string("complete")
+        fields["_meta"] = .object([Self.serverInfoKey: serverInfo])
+        return .object(fields)
+    }
+
+    private func respond(to method: String, params: JSONValue, modern: Bool) async throws -> JSONValue {
         switch method {
         case "initialize":
             let requested = params["protocolVersion"]?.string
             let version = requested.flatMap { Self.protocolVersions.contains($0) ? $0 : nil } ?? Self.protocolVersions.last!
             return .object([
                 "protocolVersion": .string(version),
-                "capabilities": .object(["tools": .object(["listChanged": .bool(false)])]),
-                "serverInfo": .object(["name": .string("moria"), "version": .string(self.version)]),
-                "instructions": .string("""
-                    Moria searches this Mac's own file index: every file and folder name, the text inside \
-                    documents, PDFs, code and images, and (when turned on) meaning. Use `search` first; its \
-                    query syntax combines words with filters. Results are local paths.
-                    """),
+                "capabilities": Self.capabilities,
+                "serverInfo": serverInfo,
+                "instructions": .string(Self.instructions),
+            ])
+        case "server/discover":
+            return .object([
+                "supportedVersions": .array(Self.modernVersions.map(JSONValue.string)),
+                "capabilities": Self.capabilities,
+                "instructions": .string(Self.instructions),
+                "ttlMs": .number(Double(Self.listTTLMilliseconds)),
+                "cacheScope": .string("public"),
             ])
         case "ping":
             return .object([:])
         case "tools/list":
-            return .object(["tools": .array(Self.tools)])
+            var result: [String: JSONValue] = ["tools": .array(Self.tools)]
+            if modern {
+                result["ttlMs"] = .number(Double(Self.listTTLMilliseconds))
+                result["cacheScope"] = .string("public")
+            }
+            return .object(result)
         case "tools/call":
             guard let name = params["name"]?.string else { throw RPCError(code: -32602, message: "tools/call needs a tool name") }
             return await callTool(name, arguments: params["arguments"] ?? .object([:]))

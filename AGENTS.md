@@ -10,7 +10,7 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
   - `Extract/` — `ContentExtractor` (text/PDF/Office/zip/HTML/OCR), `MaterializationGuard` (blocks cloud downloads), `ProcessRunner`, `AsyncLimiter`.
   - `Index/IndexController` — the one actor that scans, applies FSEvents changes, extracts and embeds.
   - `Search/` — `QueryParser`/`SearchQuery`, `QueryFormatter`, `SearchEngine` (RRF fusion, on-demand snippets, `similar:`), `RegexSearcher` (ripgrep + stored text), `NaturalLanguageQuery` (Foundation Models), `Stemmer` (Greek/Russian query stems).
-  - `MCP/MCPServer` — `moria mcp`: JSON-RPC tools over the index, transport-free so it is testable.
+  - `MCP/MCPServer` — `moria mcp`: JSON-RPC tools over the index, transport-free so it is testable. Dual-era: the `initialize` handshake (revisions to 2025-11-25) and per-request `_meta` versions with `server/discover` (2026-07-28).
   - `Semantic/` — `Embedder` (NLContextualEmbedding, mean-pooled), `VectorIndex` (in-memory Float16, vDSP).
   - `Watch/FileWatcher` — FSEvents stream.
 - `Sources/CSnowball` — vendored Snowball runtime with the UTF-8 Greek and Russian stemmers (BSD).
