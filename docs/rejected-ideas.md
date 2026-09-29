@@ -13,3 +13,19 @@ Core Spotlight, so using the tool would mean copying the whole index into Spotli
 Ask also doesn't answer questions; it turns a request into filters the user can see and edit.
 If Moria ever answers questions about files (RAG), the fit is a custom `Tool` over
 `SearchEngine`, not this one.
+
+## Reviewed 2026-09-29 (see `audit-2026-09-29.md`)
+
+- **An SDK flow layout instead of `FlowLayout`.** The macOS 26 SwiftUI interface declares
+  `GridLayout` and `AligningContentProviderLayout` only; nothing wraps.
+- **swift-subprocess `.data(limit:)` instead of `ProcessRunner`'s truncation.** The limit throws
+  `outputLimitExceeded`; `ProcessRunner.output` wants the first N bytes and a stopped child.
+- **Re-vendoring Snowball 3.1.1 (from 3.0.1).** Its NEWS lists no change to the Greek or Russian
+  algorithms, only C runtime refactors; regenerating both stemmers would change no result.
+- **Unknown MCP tool as a protocol error (`-32602`).** The spec calls for it; the server returns a
+  tool result with `isError` on purpose, so the model sees the message. Revisit only if a client
+  is shown to mishandle it.
+- **`resultType` and cache hints on handshake-era MCP responses.** Clients "MUST treat an absent
+  `resultType` as complete"; adding them would change tested output for nothing.
+- **A count-only engine method for sidebar badges.** One call site, unmeasured; the badge caps
+  at 999+ anyway (roadmap, "Sidebar counts").
