@@ -46,3 +46,4 @@
 - A change to what is crawled saves the settings and forgets the FSEvents resume point in one transaction, so a crash between the two can no longer leave new rules with an old resume point.
 - Regex results keep the chosen sort (Name, Size, …) as they arrive, as the column header says; before, rows came in the order they were found. New rows slide in below the ones shown, and the list goes back to the top only for a new search.
 - The home screen's recent files and the sidebar counts load when the window opens, also while the sidebar is collapsed (they never loaded then); the counts run at once instead of one after another.
+- The home screen keeps the thumbnails of recently changed files, so it comes back as it was instead of regenerating them on every visit; thumbnails fade in, and cards respond to the pointer smoothly.

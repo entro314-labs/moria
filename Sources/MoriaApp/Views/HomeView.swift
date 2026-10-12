@@ -60,10 +60,25 @@ struct HomeView: View {
     }
 }
 
+/// Thumbnails of the recently changed files, kept so the home screen comes back as it was
+/// instead of regenerating them (tens of milliseconds each) on every visit.
+private enum ThumbnailCache {
+    static let images: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    static func key(_ file: SearchResult) -> NSString {
+        "\(file.path)|\(file.modified.timeIntervalSince1970)" as NSString
+    }
+}
+
 private struct RecentFileCard: View {
     let file: SearchResult
     @State private var thumbnail: NSImage?
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -72,13 +87,21 @@ private struct RecentFileCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.quaternary.opacity(0.5))
-                    Image(nsImage: thumbnail ?? IconCache.icon(for: file))
+                    Image(nsImage: IconCache.icon(for: file))
                         .resizable()
-                        .aspectRatio(contentMode: thumbnail == nil ? .fit : .fill)
-                        .padding(thumbnail == nil ? 24 : 0)
+                        .aspectRatio(contentMode: .fit)
+                        .padding(24)
+                    if let thumbnail {
+                        // Fades in over the icon when it has been generated.
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .transition(.opacity)
+                    }
                 }
                 .frame(height: 104)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: thumbnail != nil)
                 Text(file.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 Text("\(Display.date(file.modified)) · \((file.path as NSString).deletingLastPathComponent.split(separator: "/").last.map(String.init) ?? "")")
                     .font(.caption)
@@ -88,6 +111,7 @@ private struct RecentFileCard: View {
             .padding(8)
             .background(hovering ? AnyShapeStyle(.quaternary.opacity(0.6)) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -101,10 +125,18 @@ private struct RecentFileCard: View {
         .draggable(file.url)
         .task(id: file.id) {
             guard !file.isCloudOnly, !file.isOffline else { return }
+            let key = ThumbnailCache.key(file)
+            if let cached = ThumbnailCache.images.object(forKey: key) {
+                thumbnail = cached
+                return
+            }
             let request = QLThumbnailGenerator.Request(fileAt: file.url, size: CGSize(width: 190, height: 104),
                                                        scale: NSScreen.main?.backingScaleFactor ?? 2,
                                                        representationTypes: .thumbnail)
-            thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage
+            // No thumbnail for this kind of file (or a file gone since): the icon stays.
+            guard let image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage else { return }
+            ThumbnailCache.images.setObject(image, forKey: key)
+            thumbnail = image
         }
     }
 }
@@ -114,6 +146,7 @@ private struct CollectionCard: View {
     let count: Int?
     let action: () -> Void
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -128,12 +161,15 @@ private struct CollectionCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(reduceMotion ? nil : .default, value: count)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
             }
             .padding(12)
             .background(.quaternary.opacity(hovering ? 0.8 : 0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
