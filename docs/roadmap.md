@@ -17,12 +17,12 @@ are never edited.
 
 ## Major
 
-- **Answers from files.** Ask a question and get an answer with the files it came from. As
-  `rejected-ideas.md` notes, the fit is a custom Foundation Models tool over `SearchEngine`
-  that retrieves passages (Meaning's chunks) and cites them. The on-device context window limits
-  how much can be passed in.
-- **Spoken words in recordings.** Transcribe audio and video on-device (the Speech framework's
-  `SpeechAnalyzer` is in the SDK) so voice memos, meetings and videos are searchable, with
-  timestamps to jump to. Opt-in and throttled: transcription is far heavier than text
-  extraction. Transcripts are stored like PDF and OCR text (`doc_text`), for snippets and
-  timestamps.
+Both items here were built on 2026-10-12: Answer mode (`Answerer`) and transcription
+(`Transcriber`). What they leave open:
+
+- **Answers over more than six passages.** The on-device window caps what the model sees; a
+  second pass that asks the model to pick passages, or a larger model when Apple offers one,
+  would let long documents be answered from more than their densest 600 characters.
+- **Transcription in more than one language.** `SpeechAnalyzer` takes one locale per pass;
+  recordings in another language than the system's come out as noise. Detecting the language
+  first (a short pass with each installed locale) would fix it at the cost of time.

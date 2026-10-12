@@ -404,15 +404,7 @@ public final class SearchEngine: Sendable {
             return MatchDetails(snippet: Snippet.make(from: "Shows " + result.labels.joined(separator: ", "), terms: terms),
                                 matchCount: 0, lines: [], passage: nil)
         }
-        let text: String?
-        if ContentExtractor.keepsExtractedText(result.kind) {
-            text = try await database.pool.read { db in
-                try String.fetchOne(db, sql: "SELECT body FROM doc_text WHERE fileId = ?", arguments: [result.id])
-            }
-        } else {
-            text = try Self.readHead(of: result.path)
-        }
-        guard let text else { return nil }
+        guard let text = try await text(of: result) else { return nil }
         let terms = query.terms + query.contentTerms + query.phrases
         let lines = Snippet.matchingLines(in: text, terms: terms, limit: 200)
         if let snippet = Snippet.make(from: text, terms: terms) {
@@ -422,6 +414,17 @@ public final class SearchEngine: Sendable {
         let chunks = Embedder.chunks(of: text)
         let passage = result.meaningChunk.flatMap { chunks.indices.contains($0) ? chunks[$0] : nil } ?? chunks.first
         return MatchDetails(snippet: passage.flatMap { Snippet.lead(of: $0) }, matchCount: 0, lines: [], passage: passage)
+    }
+
+    /// The text a result's contents are searched by: the stored text for PDFs, Office files,
+    /// recognized images and transcripts, else the head of the file.
+    public func text(of result: SearchResult) async throws -> String? {
+        if ContentExtractor.keepsExtractedText(result.kind) {
+            return try await database.pool.read { db in
+                try String.fetchOne(db, sql: "SELECT body FROM doc_text WHERE fileId = ?", arguments: [result.id])
+            }
+        }
+        return try Self.readHead(of: result.path)
     }
 
     private static func readHead(of path: String) throws -> String? {

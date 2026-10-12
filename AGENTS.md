@@ -11,7 +11,7 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
   - `Index/IndexController` — the one actor that scans, applies FSEvents changes, extracts and embeds.
   - `Search/` — `QueryParser`/`SearchQuery`, `QueryFormatter`, `SearchEngine` (RRF fusion, on-demand snippets, `similar:`), `RegexSearcher` (ripgrep + stored text), `NaturalLanguageQuery` (Foundation Models), `Stemmer` (Greek/Russian query stems).
   - `MCP/MCPServer` — `moria mcp`: JSON-RPC tools over the index, transport-free so it is testable. Dual-era: the `initialize` handshake (revisions to 2025-11-25) and per-request `_meta` versions with `server/discover` (2026-07-28).
-  - `Semantic/` — `Embedder` (NLContextualEmbedding, mean-pooled), `VectorIndex` (in-memory Float16, vDSP).
+  - `Semantic/` — `Embedder` (NLContextualEmbedding, mean-pooled), `VectorIndex` (in-memory Float16, vDSP), `Answerer` (retrieve passages, then Foundation Models writes an answer citing them).
   - `Watch/FileWatcher` — FSEvents stream.
 - `Sources/CSnowball` — vendored Snowball runtime with the UTF-8 Greek and Russian stemmers (BSD).
 - `Sources/MoriaCLI` — the `moria` executable (target `moria`).
@@ -37,6 +37,7 @@ Native macOS deep file search: filenames, contents, regex, meaning. SwiftPM pack
 - Photo labels come from Vision's `ClassifyImageRequest` in the details pass, kept only at ≥90% precision (lower cuts invent labels on screenshots), and only for images worth recognizing (as for OCR). They live in `file.labels` and a separate contentless `label_fts`, fused into search as a fourth list (`matchedLabel`), and are cleared with the other details (`v6-labels` recreates `file_ad` and the details trigger).
 - Duplicates (`duplicates:yes`, `Search/Duplicates.swift`): same-size candidates from SQL, then a hash of the first 64 KB, then a full hash only where heads match; hashes are cached in `file_hash` (`v7-hashes`) while size and mtime match. Hard links count once; cloud-only files are never read.
 - Schema changes go in new migrations (`v3`, …): real indexes exist with `v1` and `v2-filter-indexes` applied; `v3-stale-content`, `v4-tags`, `v5-media`, `v6-labels` and `v7-hashes` are applied the first time a build with them opens an index (`v4-tags` drops the resume point so the next start scans for tags). Never edit applied migrations.
+- Answers (`Answerer`, Answer mode, `moria search --answer`): retrieval is the ordinary search with only the words the model picks out of the question (`NaturalLanguageQuery`; its kinds and dates are guesses that hide the answer), falling back to the question's distinctive words and then to its longest words; each candidate's best passage (the densest window of term hits, or Meaning's chunk) goes to a fresh `LanguageModelSession` whose instructions forbid answering outside the sources, streamed as the whole text so far. The on-device context window is small: at most 6 sources of 600 characters, halved on `exceededContextWindowSize`. Citations `[n]` map to the sources in order, which are also the result rows. Gated on the Ask setting (same model); not offered over MCP, since agents bring their own model (`docs/rejected-ideas.md`).
 - `MoriaSettings` decodes missing keys with defaults; keep that when adding settings.
 
 ## Build, test, run

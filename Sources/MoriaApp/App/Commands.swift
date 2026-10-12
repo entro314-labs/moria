@@ -86,7 +86,7 @@ struct MoriaCommands: Commands {
         }
         CommandGroup(before: .sidebar) {
             ForEach(Array(SearchMode.allCases.enumerated()), id: \.element) { index, mode in
-                if mode != .ask || model?.canAsk == true {
+                if !mode.needsModel || model?.canAsk == true {
                     Toggle(isOn: Binding(get: { model?.mode == mode }, set: { if $0 { model?.mode = mode } })) {
                         Label(mode.title, systemImage: mode.symbol)
                     }

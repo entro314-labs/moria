@@ -55,7 +55,7 @@ struct MainView: View {
         .searchFocused($searchFocused)
         .onSubmit(of: .search) {
             model.submit()
-            if !model.askMode { model.focusResults() }
+            if !model.askMode, !model.answerMode { model.focusResults() }
         }
         .toolbar { toolbar }
         .toolbar(removing: .title)
@@ -80,8 +80,9 @@ struct MainView: View {
                 AppDelegate.pendingRequest = nil
                 model.show(request)
             } else if let query = UserDefaults.standard.string(forKey: "initialQuery") {
-                // `open -a Moria --args -initialQuery "…"` starts on a query.
-                model.text = query
+                // `open -a Moria --args -initialQuery "…" -initialMode answer` starts on a query.
+                let mode = UserDefaults.standard.string(forKey: "initialMode").flatMap(SearchMode.init)
+                model.show(SearchRequest(text: query, scope: nil, mode: mode))
             }
         }
         .onChange(of: model.focusSearchRequest) { searchFocused = true }
@@ -157,14 +158,14 @@ struct ModeMenu: View {
     var body: some View {
         Menu {
             Picker("Mode", selection: $model.mode) {
-                ForEach(SearchMode.allCases.filter { $0 != .ask || model.canAsk }) { mode in
+                ForEach(SearchMode.allCases.filter { !$0.needsModel || model.canAsk }) { mode in
                     Label(mode.title, systemImage: mode.symbol).tag(mode)
                 }
             }
             .pickerStyle(.inline)
             if !model.canAsk {
                 Divider()
-                SettingsLink { Text("Turn On Ask…") }
+                SettingsLink { Text("Turn On Ask and Answer…") }
             }
         } label: {
             // A single Text: menu buttons reduce a Label to its icon.
@@ -190,10 +191,11 @@ private struct ResultsArea: View {
     @State private var slow = false
 
     private enum Content: Equatable {
-        case results, home, searching, stopped, problem(String), empty
+        case answer, results, home, searching, stopped, problem(String), empty
     }
 
     private var content: Content {
+        if model.answerMode, model.answer != nil { return .answer }
         if !model.items.isEmpty { return .results }
         if model.text.isEmpty, !model.filters.isActive { return .home }
         if model.isSearching { return .searching }
@@ -205,6 +207,14 @@ private struct ResultsArea: View {
     var body: some View {
         ZStack {
             switch content {
+            case .answer:
+                ResultsTable(model: model)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        VStack(spacing: 0) {
+                            AnswerView(model: model)
+                            Divider()
+                        }
+                    }
             case .results:
                 ResultsTable(model: model)
             case .home:

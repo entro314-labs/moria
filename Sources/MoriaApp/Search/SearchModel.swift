@@ -133,18 +133,26 @@ final class SearchModel {
     var useMeaning = false { didSet { if useMeaning != oldValue { search() } } }
     /// Interpret the text as a plain-language request (runs on Return, not per keystroke).
     var askMode = false { didSet { if askMode != oldValue { interpretation = nil; if !askMode { search() } } } }
+    /// Answer the text as a question from the files (runs on Return, not per keystroke).
+    var answerMode = false { didSet { if answerMode != oldValue { answer = nil; if !answerMode { search() } } } }
     var sort: ResultSort = .relevance { didSet { applySort() } }
     var sortAscending = false { didSet { applySort() } }
 
-    /// Scope and Ask as a single mode.
+    /// Scope, Ask and Answer as a single mode.
     var mode: SearchMode {
-        get { askMode ? .ask : SearchMode(rawValue: scope.rawValue.lowercased()) ?? .everything }
+        get {
+            if answerMode { return .answer }
+            if askMode { return .ask }
+            return SearchMode(rawValue: scope.rawValue.lowercased()) ?? .everything
+        }
         set {
             if let scope = newValue.scope {
                 askMode = false
+                answerMode = false
                 self.scope = scope
             } else if canAsk {
-                askMode = true
+                askMode = newValue == .ask
+                answerMode = newValue == .answer
             }
         }
     }
@@ -176,6 +184,20 @@ final class SearchModel {
     private(set) var notice: String?
     /// The filters an Ask request was turned into, and the equivalent query text.
     private(set) var interpretation: (summary: String, query: String)?
+    /// An answer being written, or written, for the question in the field (Answer mode).
+    private(set) var answer: Answer?
+
+    struct Answer: Equatable {
+        var question: String
+        var text = ""
+        var sources: [Answerer.Source] = []
+        /// Still looking for files or still writing.
+        var isWorking = true
+        var problem: String?
+
+        /// The source numbers the answer cites so far, in order.
+        var citations: [Int] { Answerer.citations(in: text) }
+    }
     /// Content match details per result, loaded when a row first becomes visible.
     private(set) var details: [Int64: MatchDetails] = [:]
     /// Bumped when details arrive so the table can refresh visible rows.
@@ -223,9 +245,13 @@ final class SearchModel {
     /// whole search: filters chosen earlier in this window don't narrow it.
     func show(_ request: SearchRequest) {
         askMode = false
+        answerMode = false
         filters = FilterState()
         if let scope = request.scope { self.scope = scope }
+        if let mode = request.mode { self.mode = mode }
         if let text = request.text { self.text = text }
+        // Ask and Answer run on Return; a request addressed to them has pressed it.
+        if askMode || answerMode { submit() }
     }
 
     /// Documents close in meaning to the file at `path` (a `similar:` search).
@@ -341,13 +367,17 @@ final class SearchModel {
             interpretation = nil
             return
         }
+        if answerMode { return }
         search()
     }
 
-    /// Return in the search field: runs an Ask interpretation, or searches immediately.
+    /// Return in the search field: runs an Ask interpretation or an Answer, or searches
+    /// immediately.
     func submit() {
         if askMode, canAsk {
             ask()
+        } else if answerMode, canAsk {
+            answerQuestion()
         } else {
             search(debounce: false)
         }
@@ -518,6 +548,56 @@ final class SearchModel {
                 if items.isEmpty { message = notice }
             }
         }
+    }
+
+    /// Answer mode: finds the files that bear on the question and streams an answer from them.
+    /// The sources become the rows, so selecting a citation previews the file.
+    private func answerQuestion() {
+        cancelWork()
+        notice = nil
+        let question = text.trimmingCharacters(in: .whitespaces)
+        guard !question.isEmpty else { return }
+        answer = Answer(question: question)
+        isSearching = true
+        message = nil
+        details = [:]
+        pendingDetails = []
+        activeQuery = SearchQuery()
+        let engine = app.engine
+        let semantic = useMeaning && canUseMeaning
+        searchTask = Task {
+            do {
+                for try await event in Answerer().answer(question, engine: engine, semantic: semantic) {
+                    guard !Task.isCancelled else { return }
+                    switch event {
+                    case let .sources(sources, query):
+                        answer?.sources = sources
+                        activeQuery = query
+                        show(sources.map { source in
+                            var result = source.result
+                            result.matchedContent = true
+                            return ResultItem(result: result)
+                        })
+                    case let .text(text):
+                        answer?.text = text
+                    }
+                }
+                answer?.isWorking = false
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                answer?.isWorking = false
+                answer?.problem = error.localizedDescription
+            }
+            isSearching = false
+        }
+    }
+
+    /// Selects the source an answer cites as `[number]`.
+    func selectSource(_ number: Int) {
+        guard let answer, answer.sources.indices.contains(number - 1) else { return }
+        selection = [answer.sources[number - 1].id]
     }
 
     /// Replaces the text with the query an Ask request produced, for editing.
@@ -703,12 +783,14 @@ final class SearchModel {
         switch item {
         case .home:
             askMode = false
+            answerMode = false
             filters = FilterState()
             text = ""
             loadHome()
         case let .collection(name):
             guard let collection = Collection.all.first(where: { $0.name == name }) else { return }
             askMode = false
+            answerMode = false
             filters = FilterState()
             text = collection.query + " "
         case let .saved(id):
@@ -790,6 +872,7 @@ final class SearchModel {
 
     func apply(_ saved: SavedSearch) {
         askMode = false
+        answerMode = false
         scope = saved.scope
         filters = saved.filters
         text = saved.text
@@ -837,6 +920,7 @@ final class SearchModel {
     }
 
     var prompt: String {
+        if answerMode { return "Ask about your files, e.g. what does the lease say about pets?" }
         if askMode { return "Describe the file, e.g. PDF invoices about rent from last spring" }
         return scope == .regex ? "Regular expression" : "Search names and contents"
     }
@@ -869,7 +953,7 @@ final class SearchModel {
                 Suggestion(title: $0, symbol: "clock.arrow.circlepath", completion: $0)
             }
         }
-        guard scope != .regex, !askMode, !text.hasSuffix(" ") else { return [] }
+        guard scope != .regex, !askMode, !answerMode, !text.hasSuffix(" ") else { return [] }
         let head = text.split(separator: " ", omittingEmptySubsequences: false).dropLast().joined(separator: " ")
         let last = String(text.split(separator: " ", omittingEmptySubsequences: false).last ?? "")
         let prefix = head.isEmpty ? "" : head + " "

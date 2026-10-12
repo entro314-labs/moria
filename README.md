@@ -10,12 +10,13 @@ Deep search for macOS: every file name, the text inside documents, PDFs, code an
 - **Live** — follows filesystem events and catches up on changes made while it wasn't running.
 - **External drives** — locations on external drives and network volumes stay searchable while ejected (marked Offline) and are read again when they return.
 - **Ask** (optional) — plain-language requests turned into editable filters by Apple's on-device model.
+- **Answer** (optional) — a question such as “what does the lease say about pets?” answered from the text of your files by the on-device model, with the files it drew on cited and previewable.
 - **Meaning** (optional) — finds documents related to your words, with the closest passage, using on-device embeddings; **Find Similar** lists the documents closest to a selected one.
 
 ## Using it
 
 - The search field is at the top. Results show why they matched (Name, Contents · N, Text in image, Meaning) with a highlighted excerpt.
-- The bar under it holds the search **mode** (Everything, Names, Contents, Regex, Ask — ⌘1…⌘5), **+ Filter** menus, the active filters as chips, and one-click kind facets with counts.
+- The bar under it holds the search **mode** (Everything, Names, Contents, Regex, Ask, Answer — ⌘1…⌘6), **+ Filter** menus, the active filters as chips, and one-click kind facets with counts.
 - The sidebar has **Home** (recently changed files), **Collections** (Recent Documents, Downloads, Screenshots, PDFs, Images, Recent Code, Large Files, Duplicates), **Saved Searches** (⌘S) and **Locations**.
 - The inspector shows the Quick Look preview, the info, or both, with every matching line (⌘G / ⇧⌘G to step through).
 - **Criteria builder** (⇧⌘F) builds detailed searches row by row, HoudahSpot-style; **Regex builder** (⌥⌘R) composes and tests patterns. Both produce ordinary query text you can save.
@@ -46,6 +47,7 @@ similar:~/Documents/lease.pdf          documents close in meaning (Meaning on)
 moria search "lease agreement" --json
 moria search --regex 'INV-\d{4}-\d+' --filters "ext:pdf in:~/Documents"
 moria search --ask "pdf invoices from last spring"
+moria search --answer "what does the lease say about pets?"
 moria search "budget" --show          # open the results in the app
 moria index | watch | stats | config --set semanticSearchEnabled=true transcribeRecordings=true
 moria mcp                              # Model Context Protocol server for AI agents (stdio)
@@ -53,7 +55,7 @@ moria mcp                              # Model Context Protocol server for AI ag
 
 `moria mcp` gives local AI agents (Claude, Cursor, …) read-only tools over the index: `search` (the query syntax, with names/contents modes and meaning), `regex_search` and `index_status`. Register it as a stdio server with the command `/Applications/Moria.app/Contents/Resources/moria` and the argument `mcp`.
 
-Shortcuts has two actions: **Search in Moria** (opens a search) and **Find Files with Moria** (returns matching files to the next action). Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents`. Services › Search with Moria works on selected text and on Finder folders, and dropping a folder on a Moria window searches inside it.
+Shortcuts has two actions: **Search in Moria** (opens a search) and **Find Files with Moria** (returns matching files to the next action). Links work too: `moria://search?q=invoice%20ext:pdf&scope=contents` (add `&mode=answer` or `&mode=ask`). Services › Search with Moria works on selected text and on Finder folders, and dropping a folder on a Moria window searches inside it.
 
 ## Privacy and footprint
 

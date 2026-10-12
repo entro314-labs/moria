@@ -195,7 +195,7 @@ private struct IntelligenceSettings: View {
                         .foregroundStyle(.orange)
                 }
             } footer: {
-                Text("Adds an Ask button. The on-device model turns a request like “invoices from last spring over 1 MB” into filters you can review and edit. Nothing leaves your Mac.")
+                Text("Adds the Ask and Answer modes. Ask turns a request like “invoices from last spring over 1 MB” into filters you can review and edit. Answer replies to a question such as “what does the lease say about pets?” from the text of your files, citing the files it used. Both use the on-device model; nothing leaves your Mac.")
             }
             Section {
                 Toggle("Search by meaning", isOn: binding(\.semanticSearchEnabled))

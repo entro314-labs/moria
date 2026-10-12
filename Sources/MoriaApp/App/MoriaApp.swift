@@ -115,13 +115,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: URL scheme
 
-    /// `moria://search?q=invoice%20ext:pdf&scope=contents`
+    /// `moria://search?q=invoice%20ext:pdf&scope=contents`, or `&mode=answer` / `&mode=ask`.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme == "moria" {
             let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let query = items.first { $0.name == "q" }?.value ?? ""
             let scope = items.first { $0.name == "scope" }?.value.flatMap { SearchScope(rawValue: $0.capitalized) }
-            Self.showSearch(query, scope: scope)
+            let mode = items.first { $0.name == "mode" }?.value.flatMap { SearchMode(rawValue: $0.lowercased()) }
+            Self.showSearch(query, scope: scope, mode: mode)
         }
     }
 
@@ -143,9 +144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Brings a main window forward (opening one if needed) and shows `text` in it.
-    static func showSearch(_ text: String?, scope: SearchScope? = nil) {
+    static func showSearch(_ text: String?, scope: SearchScope? = nil, mode: SearchMode? = nil) {
         NSApp.activate()
-        let request = SearchRequest(text: text, scope: scope)
+        let request = SearchRequest(text: text, scope: scope, mode: mode)
         let mainWindows = NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }
         if let window = mainWindows.first(where: \.isKeyWindow) ?? mainWindows.first {
             window.makeKeyAndOrderFront(nil)
@@ -165,10 +166,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var pendingRequest: SearchRequest?
 }
 
-/// Text (and optionally a scope) to show in a main window.
+/// Text (and optionally a scope or a mode) to show in a main window. A mode of Ask or Answer
+/// runs the request at once, as pressing Return would.
 struct SearchRequest {
     var text: String?
     var scope: SearchScope?
+    var mode: SearchMode?
 }
 
 extension UserDefaults {

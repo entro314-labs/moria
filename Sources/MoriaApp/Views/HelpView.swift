@@ -49,7 +49,7 @@ struct HelpView: View {
         switch topic {
         case .searching:
             paragraph("Type in the search field at the top right. Results appear as you type and match file names and the text inside files. Each result says why it matched: **Name**, **Contents** (with the number of matching lines), **Text in image**, **In picture** (what a photo shows, such as “beach” or “receipt”), or **Meaning**.")
-            paragraph("Use the mode menu at the start of the filter bar to search **Everything**, only **Names**, only **Contents**, with a **Regex**, or to **Ask** in plain language (when turned on). The **+ Filter** menus narrow by kind, date, size and location. Every active filter appears as a chip under the toolbar; click × to remove it. When results mix kinds, the chips on the right narrow to one kind in one click, or leave it out with Option-click.")
+            paragraph("Use the mode menu at the start of the filter bar to search **Everything**, only **Names**, only **Contents**, with a **Regex**, to **Ask** in plain language, or to get an **Answer** from your files (the last two when turned on). The **+ Filter** menus narrow by kind, date, size and location. Every active filter appears as a chip under the toolbar; click × to remove it. When results mix kinds, the chips on the right narrow to one kind in one click, or leave it out with Option-click.")
             paragraph("Select a result to preview it on the right, with every matching line listed below the preview. Press Space for Quick Look, Return to open, ⌘R to show it in Finder, and ⌘K for more actions. Save a search with ⌘S to keep it in the sidebar.")
         case .syntax:
             SyntaxTable()
@@ -68,7 +68,7 @@ struct HelpView: View {
                 ("⌘⌫", "Move to Trash"),
                 ("⌘Z", "Undo Move to Trash, or deleting a saved search"),
                 ("⌘G / ⇧⌘G", "Next / previous matching line in the preview"),
-                ("⌘1 … ⌘5", "Everything, Names, Contents, Regex, Ask (when turned on)"),
+                ("⌘1 … ⌘6", "Everything, Names, Contents, Regex, Ask, Answer (the last two when turned on)"),
                 ("⇧⌘M", "Search by meaning (when turned on)"),
                 ("⌘S", "Save search"),
                 ("⇧⌘F", "Criteria builder"),
@@ -89,13 +89,14 @@ struct HelpView: View {
         case .intelligence:
             paragraph("Turn these on in Settings › Intelligence. Both use Apple's on-device models; nothing is sent anywhere.")
             paragraph("**Ask** turns a request such as “invoices about rent from last spring over 1 MB” into filters. The filters appear as chips so you can check them, remove one, or choose **Edit as Query** to fine-tune the text.")
+            paragraph("**Answer** replies to a question such as “what does the lease say about pets?” from the text of your files. Moria finds the files that bear on the question, hands the model a passage from each, and shows the answer with its sources numbered; click a number or a source to preview the file. The answer only draws on those passages, so it says when they don't settle the question. Turn on Meaning to find sources by sense as well as by words.")
             paragraph("**Meaning** also finds documents related to your words even when the exact words don't appear, and shows the closest passage. It covers documents, PDFs, notes and recognized text in Latin-script languages.")
             paragraph("**Find Similar** (File menu, ⌘K or a result's context menu) lists the documents closest in meaning to the selected one. It's the query `similar:` followed by the file's path, so filters and words narrow it and it can be saved.")
         case .integration:
             paragraph("**Services:** select text in any app, or a folder in Finder, and choose Services › Search with Moria (or Search in Folder with Moria).")
             paragraph("**Drag and drop:** drop a folder from Finder on a Moria window to search inside it. Drag results out to Finder or any app.")
             paragraph("**Shortcuts:** **Search in Moria** opens a search, and **Find Files with Moria** finds files and passes them to the next action (to move, attach or open them) without showing Moria. Both take the same query syntax as the search field.")
-            paragraph("**Links:** `moria://search?q=invoice%20ext:pdf&scope=contents` opens a search. Scopes: everything, names, contents, regex.")
+            paragraph("**Links:** `moria://search?q=invoice%20ext:pdf&scope=contents` opens a search. Scopes: everything, names, contents, regex. Add `&mode=ask` or `&mode=answer` to run the text as a request or a question.")
             paragraph("**Command line:** the `moria` tool in Moria.app/Contents/Resources shares the app's index: `moria search \"lease\" --json`, `moria search --regex 'INV-\\d+'`, `moria stats`. Add `--show` to open the results in the app.")
             paragraph("**AI agents:** `moria mcp` is a Model Context Protocol server. Add it to an agent (Claude, Cursor, …) as a stdio server with the command `/Applications/Moria.app/Contents/Resources/moria` and the argument `mcp`; the agent can then search names, contents and regular expressions. It can't change files.")
         }

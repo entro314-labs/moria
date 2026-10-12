@@ -59,6 +59,12 @@ struct ResultsTable: NSViewRepresentable {
         context.coordinator.update(model: model)
     }
 
+    /// Fills whatever it is offered. Without this, a stack asks the scroll view for its
+    /// fitting size, which is the whole table's height, and the window's content outgrows it.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
+    }
+
     // MARK: - Coordinator
 
     @MainActor

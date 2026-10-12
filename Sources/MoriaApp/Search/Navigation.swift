@@ -3,7 +3,7 @@ import MoriaCore
 
 /// How the search text is used: the scopes plus Ask, as one menu (⌘1–⌘5).
 enum SearchMode: String, CaseIterable, Identifiable {
-    case everything, names, contents, regex, ask
+    case everything, names, contents, regex, ask, answer
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum SearchMode: String, CaseIterable, Identifiable {
         case .contents: "Contents"
         case .regex: "Regex"
         case .ask: "Ask"
+        case .answer: "Answer"
         }
     }
 
@@ -24,6 +25,7 @@ enum SearchMode: String, CaseIterable, Identifiable {
         case .contents: "doc.text.magnifyingglass"
         case .regex: "asterisk"
         case .ask: "text.bubble"
+        case .answer: "questionmark.bubble"
         }
     }
 
@@ -34,6 +36,7 @@ enum SearchMode: String, CaseIterable, Identifiable {
         case .contents: "Text inside files only"
         case .regex: "Regular expression over names and contents"
         case .ask: "Describe what you're looking for; press Return"
+        case .answer: "Ask a question; the answer comes from your files, with the files it came from"
         }
     }
 
@@ -43,9 +46,12 @@ enum SearchMode: String, CaseIterable, Identifiable {
         case .names: .names
         case .contents: .contents
         case .regex: .regex
-        case .ask: nil
+        case .ask, .answer: nil
         }
     }
+
+    /// Needs the on-device language model (Settings › Intelligence › Ask).
+    var needsModel: Bool { self == .ask || self == .answer }
 }
 
 /// Built-in one-click searches shown in the sidebar and on the home screen. Each is plain

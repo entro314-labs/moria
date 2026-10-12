@@ -32,3 +32,7 @@ If Moria ever answers questions about files (RAG), the fit is a custom `Tool` ov
   0.4 s in all, once per sidebar appearance or saved-search change, in the background. A
   count-only query would save only the fetch of up to 1000 rows after the candidate scan, which
   is where the time goes. Not worth an engine entry point.
+
+## An `answer` tool for `moria mcp`
+
+Answer mode (2026-10-12) retrieves passages and has Apple's on-device model write an answer. An MCP client is itself a language model with a far larger context window; what it needs from Moria is the retrieval (`search`, `regex_search`), not a second, smaller model's prose. Not offered.

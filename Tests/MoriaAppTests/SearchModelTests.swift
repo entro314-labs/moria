@@ -180,6 +180,27 @@ struct ResultOrderTests {
 }
 
 @MainActor
+struct AnswerModeTests {
+    /// Answer is a mode like Ask: only with the model turned on, and typing doesn't search.
+    @Test func answerModeWaitsForReturn() async throws {
+        let model = try await indexedModel()
+        model.mode = .answer
+        #expect(model.mode == .everything && !model.answerMode)
+        model.app.update { $0.naturalLanguageQueriesEnabled = true }
+        model.mode = .answer
+        #expect(model.mode == .answer && model.answerMode && !model.askMode)
+        model.text = "invoice"
+        #expect(!model.isSearching && model.items.isEmpty && model.answer == nil)
+        #expect(model.prompt.hasPrefix("Ask about your files"))
+        // Leaving the mode searches the text as words again.
+        model.mode = .names
+        #expect(!model.answerMode && model.isSearching)
+        try await settle(model)
+        #expect(model.items.map(\.result.name) == ["invoice.txt"])
+    }
+}
+
+@MainActor
 struct HomeTests {
     /// The home screen's recent files and the sidebar counts come from one load.
     @Test func homeLoadsRecentFilesAndCounts() async throws {

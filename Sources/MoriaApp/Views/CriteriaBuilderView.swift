@@ -83,7 +83,7 @@ struct CriteriaBuilderView: View {
                     } else {
                         // Criteria are query text, not a pattern or a request; other modes and
                         // the chosen filters stay.
-                        if model.mode == .regex || model.mode == .ask { model.mode = .everything }
+                        if model.mode.scope == nil || model.mode == .regex { model.mode = .everything }
                         model.text = query
                     }
                     dismiss()

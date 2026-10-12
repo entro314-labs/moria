@@ -132,6 +132,8 @@ struct Search: AsyncParsableCommand {
     var semantic = false
     @Flag(help: "Interpret the query as a plain-language request with the on-device model.")
     var ask = false
+    @Flag(help: "Answer the query as a question from the files' text, with the files it came from (on-device model).")
+    var answer = false
     @Flag(help: "Print JSON lines.")
     var json = false
     @Flag(help: "Show the search in the Moria app instead of printing results.")
@@ -143,6 +145,8 @@ struct Search: AsyncParsableCommand {
             var components = URLComponents(string: "moria://search")!
             components.queryItems = [URLQueryItem(name: "q", value: text)]
             if regex { components.queryItems?.append(URLQueryItem(name: "scope", value: "regex")) }
+            if answer { components.queryItems?.append(URLQueryItem(name: "mode", value: "answer")) }
+            else if ask { components.queryItems?.append(URLQueryItem(name: "mode", value: "ask")) }
             let opened = try await Subprocess.run(
                 .path("/usr/bin/open"), arguments: [components.url!.absoluteString], output: .discarded, error: .string(limit: 4096)
             )
@@ -159,6 +163,10 @@ struct Search: AsyncParsableCommand {
             return
         }
         guard filters == nil else { throw ValidationError("--filters applies to --regex searches; put filters in the query otherwise.") }
+        if answer {
+            try await runAnswer(db: db, question: text)
+            return
+        }
         var parsed = QueryParser().parse(text)
         if ask {
             do {
@@ -190,6 +198,36 @@ struct Search: AsyncParsableCommand {
         }
         if !json {
             FileHandle.standardError.write(Data(String(format: "%d results in %.1f ms\n", results.count, elapsed).utf8))
+        }
+    }
+
+    /// Prints the sources as they are found, then the answer as it is written.
+    private func runAnswer(db: IndexDatabase, question: String) async throws {
+        let engine = SearchEngine(database: db)
+        var printed = 0
+        var whole = ""
+        var paths: [String] = []
+        for try await event in Answerer().answer(question, engine: engine, semantic: semantic) {
+            switch event {
+            case let .sources(sources, _):
+                paths = sources.map(\.result.path)
+                guard !json else { continue }
+                for (index, path) in paths.enumerated() { print("[\(index + 1)] \(path)") }
+                print("")
+            case let .text(text):
+                whole = text
+                guard !json else { continue }
+                // The model streams the whole text so far; print only what is new.
+                print(String(text.dropFirst(printed)), terminator: "")
+                printed = text.count
+                fflush(stdout)
+            }
+        }
+        if json {
+            let sources = paths.enumerated().map { ["number": $0.offset + 1, "path": $0.element] as [String: Any] }
+            print(String(decoding: try JSONSerialization.data(withJSONObject: ["answer": whole, "sources": sources]), as: UTF8.self))
+        } else {
+            print("")
         }
     }
 
