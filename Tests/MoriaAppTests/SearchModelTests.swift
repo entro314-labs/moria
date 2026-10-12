@@ -210,6 +210,18 @@ struct FieldTokenTests {
         #expect(model.text == "-in:~/Library hidden:no " && model.fieldTokens.count == 2)
     }
 
+    /// A completion replaces the words only; the tokens in front of them stay once.
+    @Test func completionsKeepTheTokensOnce() throws {
+        let (app, _) = try makeAppModel()
+        let model = SearchModel(app: app)
+        model.fieldWords = "ext:pdf kin"
+        #expect(model.fieldWords == "kin" && model.fieldTokens.map(\.label) == [".pdf"])
+        let completion = try #require(model.suggestions.first { $0.title.hasPrefix("kind:") }).completion
+        #expect(completion == "kind:")
+        model.fieldWords = completion
+        #expect(model.text == "ext:pdf kind:")
+    }
+
     /// A regex, a request or a question is shown whole: no tokens.
     @Test func wholeTextModesHaveNoTokens() throws {
         let (app, _) = try makeAppModel()
@@ -233,6 +245,15 @@ struct AnswerModeTests {
         model.text = "invoice"
         #expect(!model.isSearching && model.items.isEmpty && model.answer == nil)
         #expect(model.prompt.hasPrefix("Ask about your files"))
+        // Stop ends an answer under way, as it ends a search.
+        if Answerer.isAvailable {
+            model.text = "what is in the invoice?"
+            model.submit()
+            #expect(model.answer?.isWorking == true && model.isSearching)
+            model.stop()
+            #expect(model.answer?.isWorking == false && !model.isSearching)
+            model.text = "invoice"
+        }
         // Leaving the mode searches the text as words again.
         model.mode = .names
         #expect(!model.answerMode && model.isSearching)

@@ -422,6 +422,10 @@ final class SearchModel {
         isStopped = true
         notice = "Stopped"
         message = nil
+        if answer?.isWorking == true {
+            answer?.isWorking = false
+            if answer?.text.isEmpty == true { answer?.problem = "Stopped before an answer was written." }
+        }
     }
 
     /// Cancels the search task and the excerpt loads. Cancelling interrupts their database reads
@@ -582,6 +586,8 @@ final class SearchModel {
                         answer?.text = text
                     }
                 }
+                // A cancelled stream ends quietly; a newer search may be running by now.
+                guard !Task.isCancelled else { return }
                 answer?.isWorking = false
             } catch is CancellationError {
                 return
@@ -1039,14 +1045,16 @@ final class SearchModel {
 
     /// Recent searches when the field is empty; otherwise completions for the filter being typed.
     var suggestions: [Suggestion] {
+        // Completions replace the field's words, not the whole query: the tokens stay in front.
+        let words = fieldWords
         if text.isEmpty {
             return (UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []).map {
                 Suggestion(title: $0, symbol: "clock.arrow.circlepath", completion: $0)
             }
         }
-        guard scope != .regex, !askMode, !answerMode, !text.hasSuffix(" ") else { return [] }
-        let head = text.split(separator: " ", omittingEmptySubsequences: false).dropLast().joined(separator: " ")
-        let last = String(text.split(separator: " ", omittingEmptySubsequences: false).last ?? "")
+        guard scope != .regex, !askMode, !answerMode, !words.isEmpty, !words.hasSuffix(" ") else { return [] }
+        let head = words.split(separator: " ", omittingEmptySubsequences: false).dropLast().joined(separator: " ")
+        let last = String(words.split(separator: " ", omittingEmptySubsequences: false).last ?? "")
         let prefix = head.isEmpty ? "" : head + " "
         guard let colon = last.firstIndex(of: ":") else {
             // Typing the start of a filter name: offer the filter.
