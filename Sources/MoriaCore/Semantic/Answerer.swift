@@ -42,10 +42,28 @@ public struct Answerer: Sendable {
 
     public static var isAvailable: Bool { NaturalLanguageQuery.isAvailable }
 
-    /// Files considered; sources sent to the model; characters per passage.
+    /// Files considered.
     static let candidateLimit = 40
-    static let maxSources = 6
-    static let passageCharacters = 600
+
+    /// How many passages, and how long, the model on this Mac is given. Well under the context
+    /// window (a token is about three and a half characters): the small model answers best
+    /// from a few focused passages, and the question and answer need room too.
+    struct Budget: Equatable {
+        var sources: Int
+        var passageCharacters: Int
+
+        /// The 4096-token model of macOS 26 gets six passages of 600 characters (about a
+        /// third of its window); the 8192-token model of macOS 27 gets ten of 900.
+        init(contextSize: Int) {
+            switch contextSize {
+            case ..<3000: (sources, passageCharacters) = (2, 600)
+            case ..<8000: (sources, passageCharacters) = (6, 600)
+            default: (sources, passageCharacters) = (10, 900)
+            }
+        }
+    }
+
+    static var budget: Budget { Budget(contextSize: SystemLanguageModel.default.contextSize) }
 
     public init() {}
 
@@ -88,14 +106,15 @@ public struct Answerer: Sendable {
                 results = try await engine.search(query, limit: Self.candidateLimit, semantic: semantic)
             }
         }
+        let budget = Self.budget
         var sources: [Source] = []
         for result in results where Self.canQuote(result) {
             try Task.checkCancellation()
             guard let text = try await engine.text(of: result) else { continue }
-            if let passage = Self.bestPassage(of: text, terms: terms, meaningChunk: result.meaningChunk) {
+            if let passage = Self.bestPassage(of: text, terms: terms, meaningChunk: result.meaningChunk, characters: budget.passageCharacters) {
                 sources.append(Source(result: result, passage: passage))
             }
-            if sources.count == Self.maxSources { break }
+            if sources.count == budget.sources { break }
         }
         return (sources, query)
     }
@@ -139,9 +158,9 @@ public struct Answerer: Sendable {
         }
     }
 
-    /// The window of `passageCharacters` around the text's densest cluster of the terms (or
-    /// the chunk Meaning matched, when no term appears), cut at line boundaries.
-    static func bestPassage(of text: String, terms: [String], meaningChunk: Int?) -> String? {
+    /// The window of `characters` around the text's densest cluster of the terms (or the
+    /// chunk Meaning matched, when no term appears), cut at line boundaries.
+    static func bestPassage(of text: String, terms: [String], meaningChunk: Int?, characters passageCharacters: Int = 600) -> String? {
         let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !lines.isEmpty else { return nil }
         let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]

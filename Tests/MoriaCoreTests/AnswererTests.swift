@@ -16,13 +16,23 @@ struct AnswererTests {
         let text = (filler + ["Pets are allowed with a deposit of 300 euros.", "Dogs must be leashed in the garden."] + filler)
             .joined(separator: "\n")
         let passage = try #require(Answerer.bestPassage(of: text, terms: ["pets", "deposit"], meaningChunk: nil))
-        #expect(passage.contains("Pets are allowed") && passage.count <= Answerer.passageCharacters)
+        #expect(passage.contains("Pets are allowed") && passage.count <= 600)
         // Stems match as the search did: "leashed" by "leash".
         #expect(Answerer.bestPassage(of: text, terms: ["leashing"], meaningChunk: nil)?.contains("leashed") == true)
         // No term in the text and no meaning match: nothing to quote.
         #expect(Answerer.bestPassage(of: text, terms: ["zebra"], meaningChunk: nil) == nil)
         // A meaning match quotes the chunk the vectors found.
         #expect(Answerer.bestPassage(of: text, terms: ["zebra"], meaningChunk: 0)?.hasPrefix("Nothing relevant") == true)
+    }
+
+    /// The passages fit the model on this Mac: more and longer ones with a larger window.
+    @Test func budgetFollowsTheContextWindow() {
+        let small = Answerer.Budget(contextSize: 4096), large = Answerer.Budget(contextSize: 8192)
+        #expect(small.sources == 6 && small.passageCharacters == 600)
+        #expect(large.sources == 10 && large.passageCharacters == 900)
+        #expect(Answerer.Budget(contextSize: 2000).sources == 2)
+        let budget = Answerer.budget
+        #expect(budget.sources >= 2 && budget.passageCharacters >= 600)
     }
 
     @Test func citationsAreNumberedInOrderOfMention() {

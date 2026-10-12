@@ -129,15 +129,11 @@ struct MainView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
-                FilterOptions(filters: $model.filters, roots: app.settings.roots)
-            } label: {
-                Label("Filter", systemImage: "line.3.horizontal.decrease")
-            }
-            .help("Add a filter: kind, date, size, location")
-            Button("Criteria", systemImage: "slider.horizontal.3") { model.showCriteria = true }
-                .help("Build a detailed search from criteria (⇧⌘F)")
+        // In a narrow window the filters stay and the help goes to the overflow menu first.
+        if #available(macOS 26.1, *) {
+            filterItems.visibilityPriority(.high)
+        } else {
+            filterItems
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup(placement: .primaryAction) {
@@ -151,14 +147,35 @@ struct MainView: View {
             }
         }
         ToolbarSpacer(.fixed)
-        ToolbarItem(placement: .primaryAction) {
-            Button("Query Syntax", systemImage: "questionmark.circle") { showSyntax.toggle() }
-                .help("Filters you can type in the search field")
-                .popover(isPresented: $showSyntax, arrowEdge: .bottom) { SyntaxHelp(model: model).padding() }
+        if #available(macOS 26.1, *) {
+            syntaxItem.visibilityPriority(.low)
+        } else {
+            syntaxItem
         }
         ToolbarItem(placement: .primaryAction) {
             Button("Preview", systemImage: "sidebar.trailing") { showInspector.toggle() }
                 .help("Show or hide the preview (⌥⌘I)")
+        }
+    }
+
+    private var filterItems: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                FilterOptions(filters: $model.filters, roots: app.settings.roots)
+            } label: {
+                Label("Filter", systemImage: "line.3.horizontal.decrease")
+            }
+            .help("Add a filter: kind, date, size, location")
+            Button("Criteria", systemImage: "slider.horizontal.3") { model.showCriteria = true }
+                .help("Build a detailed search from criteria (⇧⌘F)")
+        }
+    }
+
+    private var syntaxItem: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button("Query Syntax", systemImage: "questionmark.circle") { showSyntax.toggle() }
+                .help("Filters you can type in the search field")
+                .popover(isPresented: $showSyntax, arrowEdge: .bottom) { SyntaxHelp(model: model).padding() }
         }
     }
 }
