@@ -159,7 +159,10 @@ final class AppModel {
                 guard stateChanged || Date().timeIntervalSince(lastUpdate) > 0.25 else { continue }
                 lastUpdate = Date()
                 self.progress = progress
-                if progress.phase == .idle || Date().timeIntervalSince(lastStatsRefresh) > 10 {
+                // The stats are a full scan of the file table (under a second on a 4-million-entry
+                // index), and while indexing they only feed the coverage popover and Settings,
+                // which refresh themselves when opened.
+                if progress.phase == .idle || Date().timeIntervalSince(lastStatsRefresh) > 30 {
                     refreshStats()
                 }
             }
