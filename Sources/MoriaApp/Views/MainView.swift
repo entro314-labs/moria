@@ -72,6 +72,9 @@ struct MainView: View {
         .onAppear {
             searchFocused = true
             model.undoManager = undoManager
+            // From the window, not the sidebar: a collapsed sidebar never appears, and the
+            // home screen needs the recent files and counts too.
+            model.loadHome()
             AppDelegate.openMainWindow = { openWindow(id: "main") }
             if let request = AppDelegate.pendingRequest {
                 AppDelegate.pendingRequest = nil
@@ -82,6 +85,7 @@ struct MainView: View {
             }
         }
         .onChange(of: model.focusSearchRequest) { searchFocused = true }
+        .onChange(of: app.savedSearches) { model.loadHome() }
         .alert("Save Search", isPresented: $model.showSavePrompt) {
             TextField("Name", text: $saveName)
             Button("Save") { app.save(model.currentAsSaved(named: saveName.isEmpty ? model.text : saveName)) }

@@ -90,8 +90,6 @@ struct SidebarView: View {
             }
         }
         .fileDialogConfirmationLabel("Search Here")
-        .onAppear { model.loadHome() }
-        .onChange(of: model.app.savedSearches) { model.loadHome() }
         .alert("Rename Saved Search", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Rename") { if let renaming { model.app.renameSavedSearch(renaming.id, to: newName) } }

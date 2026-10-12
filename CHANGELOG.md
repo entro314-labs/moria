@@ -45,3 +45,4 @@
 - Failures reading the index status, the home screen, a result's excerpt or the number of documents Meaning would cover are shown in the status bar instead of leaving blanks.
 - A change to what is crawled saves the settings and forgets the FSEvents resume point in one transaction, so a crash between the two can no longer leave new rules with an old resume point.
 - Regex results keep the chosen sort (Name, Size, …) as they arrive, as the column header says; before, rows came in the order they were found. New rows slide in below the ones shown, and the list goes back to the top only for a new search.
+- The home screen's recent files and the sidebar counts load when the window opens, also while the sidebar is collapsed (they never loaded then); the counts run at once instead of one after another.

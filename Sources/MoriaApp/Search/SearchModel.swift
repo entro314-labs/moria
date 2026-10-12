@@ -728,32 +728,45 @@ final class SearchModel {
         }
     }
 
-    /// Loads the home screen's recent files and the sidebar counts.
+    private var homeTask: Task<Void, Never>?
+
+    /// Loads the home screen's recent files and the sidebar counts. A load still running (the
+    /// window appeared and a saved search changed) is dropped for the new one.
     func loadHome() {
+        homeTask?.cancel()
         let engine = app.engine
         let saved = app.savedSearches
-        Task {
+        homeTask = Task {
             do {
                 var recent = QueryParser().parse("modified:<14d -in:~/Library hidden:no cloud:no")
                 recent.excludedKinds = [.folder, .package, .application]
                 recentFiles = try await engine.search(recent, limit: 24)
 
-                // Each count is one search capped at 1000 (the badge says 999+ beyond that); the
-                // seven collections take about 0.4 s in all on a 4-million-entry index.
-                var counts: [SidebarItem: Int] = [:]
-                for collection in Collection.all where collection.isCounted {
-                    let query = QueryParser().parse(collection.query)
-                    counts[.collection(collection.name)] = try await engine.search(query, limit: 1000).count
+                // Each count is one search capped at 1000 (the badge says 999+ beyond that), all
+                // at once on the pool's readers: one after another, the seven collections take
+                // about 0.4 s on a 4-million-entry index.
+                var queries: [(SidebarItem, SearchQuery)] = Collection.all.filter(\.isCounted).map {
+                    (.collection($0.name), QueryParser().parse($0.query))
                 }
                 for search in saved {
                     var query = QueryParser().parse(search.text)
                     search.filters.apply(to: &query)
-                    counts[.saved(search.id)] = try await engine.search(query, limit: 1000).count
+                    queries.append((.saved(search.id), query))
                 }
+                let counts = try await withThrowingTaskGroup(of: (SidebarItem, Int).self) { group in
+                    for (item, query) in queries {
+                        group.addTask { (item, try await engine.search(query, limit: 1000).count) }
+                    }
+                    var counts: [SidebarItem: Int] = [:]
+                    for try await (item, count) in group { counts[item] = count }
+                    return counts
+                }
+                guard !Task.isCancelled else { return }
                 self.counts = counts
             } catch is CancellationError {
                 return
             } catch {
+                guard !Task.isCancelled else { return }
                 app.lastError = "The home screen couldn't be loaded: \(error)"
             }
         }

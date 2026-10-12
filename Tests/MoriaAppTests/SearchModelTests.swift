@@ -180,6 +180,20 @@ struct ResultOrderTests {
 }
 
 @MainActor
+struct HomeTests {
+    /// The home screen's recent files and the sidebar counts come from one load.
+    @Test func homeLoadsRecentFilesAndCounts() async throws {
+        let model = try await indexedModel()
+        model.loadHome()
+        for _ in 0..<300 where model.counts.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(model.recentFiles.map(\.name).sorted() == ["invoice.txt", "plans.txt"])
+        #expect(model.counts[.collection("Recent Documents")] == 2)
+        #expect(model.counts[.collection("Downloads")] == 0)
+        #expect(model.counts[.collection("Duplicates")] == nil)
+    }
+}
+
+@MainActor
 struct StopSearchTests {
     @Test func stopEndsTheSearchAndClearsRowsFromThePreviousOne() async throws {
         let model = try await indexedModel()
