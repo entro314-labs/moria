@@ -214,7 +214,11 @@ private struct IntelligenceSettings: View {
         .formStyle(.grouped)
         .task {
             let database = app.database
-            embeddable = await Task.detached(priority: .utility) { try? database.embeddableCount() }.value
+            do {
+                embeddable = try await Task.detached(priority: .utility) { try database.embeddableCount() }.value
+            } catch {
+                app.lastError = "The number of documents Meaning would cover couldn't be counted: \(error)"
+            }
         }
     }
 

@@ -199,13 +199,17 @@ final class AppModel {
         let database = database
         let engine = engine
         Task.detached(priority: .utility) {
-            let stats = try? database.stats()
-            let tags = try? engine.tagNames()
-            let offline = try? database.offlineMountPoints()
-            await MainActor.run {
-                self.stats = stats
-                if let tags { self.tagNames = tags }
-                if let offline { self.offlineMountPoints = offline }
+            do {
+                let stats = try database.stats()
+                let tags = try engine.tagNames()
+                let offline = try database.offlineMountPoints()
+                await MainActor.run {
+                    self.stats = stats
+                    self.tagNames = tags
+                    self.offlineMountPoints = offline
+                }
+            } catch {
+                await MainActor.run { self.lastError = "The index status couldn't be read: \(error)" }
             }
         }
     }

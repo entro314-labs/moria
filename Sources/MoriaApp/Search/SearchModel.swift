@@ -570,14 +570,21 @@ final class SearchModel {
         let engine = app.engine
         let result = item.result
         detailTasks[id] = Task {
-            let loaded = try? await engine.details(for: result, query: query)
-            guard !Task.isCancelled else { return }
+            do {
+                let loaded = try await engine.details(for: result, query: query)
+                guard !Task.isCancelled else { return }
+                if let loaded {
+                    details[id] = loaded
+                    detailsRevision += 1
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                app.lastError = "The excerpt for “\(result.name)” couldn't be read: \(error)"
+            }
             pendingDetails.remove(id)
             detailTasks[id] = nil
-            if let loaded {
-                details[id] = loaded
-                detailsRevision += 1
-            }
         }
     }
 
@@ -714,21 +721,29 @@ final class SearchModel {
         let engine = app.engine
         let saved = app.savedSearches
         Task {
-            var recent = QueryParser().parse("modified:<14d -in:~/Library hidden:no cloud:no")
-            recent.excludedKinds = [.folder, .package, .application]
-            recentFiles = (try? await engine.search(recent, limit: 24)) ?? []
+            do {
+                var recent = QueryParser().parse("modified:<14d -in:~/Library hidden:no cloud:no")
+                recent.excludedKinds = [.folder, .package, .application]
+                recentFiles = try await engine.search(recent, limit: 24)
 
-            var counts: [SidebarItem: Int] = [:]
-            for collection in Collection.all where collection.isCounted {
-                let query = QueryParser().parse(collection.query)
-                counts[.collection(collection.name)] = (try? await engine.search(query, limit: 1000).count) ?? 0
+                // Each count is one search capped at 1000 (the badge says 999+ beyond that); the
+                // seven collections take about 0.4 s in all on a 4-million-entry index.
+                var counts: [SidebarItem: Int] = [:]
+                for collection in Collection.all where collection.isCounted {
+                    let query = QueryParser().parse(collection.query)
+                    counts[.collection(collection.name)] = try await engine.search(query, limit: 1000).count
+                }
+                for search in saved {
+                    var query = QueryParser().parse(search.text)
+                    search.filters.apply(to: &query)
+                    counts[.saved(search.id)] = try await engine.search(query, limit: 1000).count
+                }
+                self.counts = counts
+            } catch is CancellationError {
+                return
+            } catch {
+                app.lastError = "The home screen couldn't be loaded: \(error)"
             }
-            for search in saved {
-                var query = QueryParser().parse(search.text)
-                search.filters.apply(to: &query)
-                counts[.saved(search.id)] = (try? await engine.search(query, limit: 1000).count) ?? 0
-            }
-            self.counts = counts
         }
     }
 

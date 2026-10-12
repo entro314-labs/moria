@@ -42,4 +42,5 @@
 - `moria search --regex` takes `--filters "ext:swift in:~/Code"` to narrow the files, as the app's filters and the MCP tool's `filters` do.
 - Settings › Locations and Contents: the folder-name lists keep an edit when the field loses focus, not only on Return.
 - Rescan Now resumes paused indexing, as Rebuild Index does; before, the scan waited behind the pause with no sign of it.
+- Failures reading the index status, the home screen, a result's excerpt or the number of documents Meaning would cover are shown in the status bar instead of leaving blanks.
 - A change to what is crawled saves the settings and forgets the FSEvents resume point in one transaction, so a crash between the two can no longer leave new rules with an old resume point.
