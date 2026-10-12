@@ -20,6 +20,7 @@ Deep search for macOS: every file name, the text inside documents, PDFs, code an
 - The sidebar has **Home** (recently changed files), **Collections** (Recent Documents, Downloads, Screenshots, PDFs, Images, Recent Code, Large Files, Duplicates), **Saved Searches** (⌘S) and **Locations**.
 - The inspector shows the Quick Look preview, the info, or both, with every matching line (⌘G / ⇧⌘G to step through).
 - **Criteria builder** (⇧⌘F) builds detailed searches row by row, HoudahSpot-style; **Regex builder** (⌥⌘R) composes and tests patterns. Both produce ordinary query text you can save.
+- Results learn: what you open for a search comes first next time, and a search that names an app lists the app first, as in Spotlight.
 - **⌃⌥Space** opens quick search from anywhere; **⌘K** lists actions for the selection; Space is Quick Look, ⌘R shows in Finder.
 - Query syntax (also under the **?** button and Help › Moria Help):
 

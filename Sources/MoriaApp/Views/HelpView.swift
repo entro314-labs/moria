@@ -50,6 +50,7 @@ struct HelpView: View {
         case .searching:
             paragraph("Type in the search field at the top right. Results appear as you type and match file names and the text inside files. Each result says why it matched: **Name**, **Contents** (with the number of matching lines), **Text in image**, **In picture** (what a photo shows, such as “beach” or “receipt”), or **Meaning**.")
             paragraph("Use the mode menu at the start of the filter bar to search **Everything**, only **Names**, only **Contents**, with a **Regex**, to **Ask** in plain language, or to get an **Answer** from your files (the last two when turned on). The **+ Filter** menus narrow by kind, date, size and location. Every active filter appears as a chip under the toolbar; click × to remove it. When results mix kinds, the chips on the right narrow to one kind in one click, or leave it out with Option-click.")
+            paragraph("Results are ranked by how well the words match names and contents. A search that names an app (“saf”, “final cut”) lists the app first, so quick search launches it with Return. What you open for a search comes first the next time you type it, and fades over the following weeks.")
             paragraph("Select a result to preview it on the right, with every matching line listed below the preview. Press Space for Quick Look, Return to open, ⌘R to show it in Finder, and ⌘K for more actions. Save a search with ⌘S to keep it in the sidebar.")
         case .syntax:
             SyntaxTable()

@@ -11,6 +11,10 @@ final class AppModel {
     let engine: SearchEngine
     /// Where app preferences, saved searches and sidebar folders are kept.
     let defaults: UserDefaults
+    /// What was opened for which search, so it comes first next time.
+    let frecency: Frecency
+    /// The apps on this Mac, listed first when a search names one.
+    let applications = Applications()
 
     private(set) var progress = IndexProgress()
     private(set) var settings: MoriaSettings
@@ -136,6 +140,7 @@ final class AppModel {
     init(defaults: UserDefaults = .standard) throws {
         MaterializationGuard.disableDownloads()
         self.defaults = defaults
+        frecency = Frecency(defaults: defaults)
         database = try IndexDatabase(url: Self.indexURL(defaults: defaults))
         controller = try IndexController(database: database)
         engine = SearchEngine(database: database)

@@ -244,6 +244,15 @@ struct IndexTests {
         #expect(try await engine.search(QueryParser(home: root.path).parse("quarterly budget")).isEmpty)
     }
 
+    /// Name matches rank: exact, then the name's start, then a later word's start, then inside a word.
+    @Test func nameMatchesRankByWhereTheWordFalls() {
+        #expect(SearchEngine.nameBonus("budget.xlsx", wanted: ["budget"]) == 2)
+        #expect(SearchEngine.nameBonus("budget 2026.xlsx", wanted: ["budget"]) == 1.4)
+        #expect(SearchEngine.nameBonus("q3 budget.xlsx", wanted: ["budget"]) == 1.2)
+        #expect(SearchEngine.nameBonus("q3-budget-final.xlsx", wanted: ["budget"]) == 1.2)
+        #expect(SearchEngine.nameBonus("mybudget.xlsx", wanted: ["budget"]) == 1)
+    }
+
     @Test func symlinksAreIndexedByNameOnly() async throws {
         let outside = try TestSupport.makeTempDirectory()
         try Data("platypus habitat notes".utf8).write(to: outside.appending(path: "notes.txt"))

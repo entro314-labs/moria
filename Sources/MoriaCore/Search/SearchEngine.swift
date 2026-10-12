@@ -46,6 +46,18 @@ public struct SearchResult: Sendable, Identifiable, Hashable {
     public var url: URL { URL(fileURLWithPath: path) }
 }
 
+extension SearchResult {
+    /// A result made outside the index (an app listed from its folder); ids there are negative.
+    public init(id: Int64, path: String, name: String, ext: String, kind: FileKind, isDirectory: Bool, size: Int64,
+                modified: Date, created: Date, isCloudOnly: Bool, matchedName: Bool, matchedContent: Bool,
+                matchedMeaning: Bool, meaningChunk: Int?, snippet: String?, score: Double) {
+        self.init(id: id, path: path, name: name, ext: ext, kind: kind, isDirectory: isDirectory, size: size,
+                  modified: modified, created: created, isCloudOnly: isCloudOnly, taken: nil, duration: nil, author: nil,
+                  labels: [], tags: [], matchedName: matchedName, matchedContent: matchedContent,
+                  matchedMeaning: matchedMeaning, meaningChunk: meaningChunk, snippet: snippet, score: score)
+    }
+}
+
 /// Content match details for one result.
 public struct MatchDetails: Sendable, Equatable {
     /// One-line excerpt with highlight markers.
@@ -338,12 +350,14 @@ public final class SearchEngine: Sendable {
             .map { $0 }
     }
 
-    /// Exact and prefix filename matches outrank substring matches.
+    /// Exact filename matches outrank prefix matches, which outrank matches at the start of
+    /// a later word ("budget" in "q3 budget.xlsx"), which outrank matches inside a word.
     static func nameBonus(_ name: String, wanted: [String]) -> Double {
         guard let first = wanted.first else { return 1 }
         let stem = (name as NSString).deletingPathExtension
         if stem == wanted.joined(separator: " ") || name == first { return 2 }
         if name.hasPrefix(first) { return 1.4 }
+        if name.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).dropFirst().contains(where: { $0.hasPrefix(first) }) { return 1.2 }
         return 1
     }
 

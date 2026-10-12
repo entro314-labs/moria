@@ -460,7 +460,7 @@ final class SearchModel {
             activeQuery = query
             details = [:]
             pendingDetails = []
-            show(results.map { ResultItem(result: $0) })
+            show(apps(for: text, best: results.first?.score ?? 0) + results.map { ResultItem(result: $0) })
             elapsed = clock.now - start
             if results.isEmpty { message = "No matches" }
         } catch is CancellationError {
@@ -609,12 +609,40 @@ final class SearchModel {
 
     // MARK: - Results
 
+    /// Apps whose names start with the words typed, scored above every file: a short search
+    /// most often wants to launch one. Only for plain words, as the user would type them in
+    /// Spotlight: not with filters, phrases, a regex, or a request to the model.
+    private func apps(for text: String, best: Double) -> [ResultItem] {
+        guard scope == .everything || scope == .names, !filters.isActive, !askMode, !answerMode,
+              QueryParser().chips(for: text).isEmpty, !text.contains("\"") else { return [] }
+        return app.applications.matching(text).enumerated().map { number, found in
+            var result = Applications.result(for: found, number: number + 1)
+            result.score = (best > 0 ? best : 1) * 2
+            return ResultItem(result: result)
+        }
+    }
+
     private func show(_ newItems: [ResultItem]) {
         let previous = selection
-        replaceItems(newItems)
+        replaceItems(boosted(newItems))
         applySort()
         selection = previous.intersection(Set(items.map(\.id)))
         if selection.isEmpty, let first = items.first { selection = [first.id] }
+    }
+
+    /// What was opened for this search before moves up: one recent use lifts a file to the
+    /// best score, repeated uses above the apps. Relevance only; other sorts ignore scores.
+    private func boosted(_ items: [ResultItem]) -> [ResultItem] {
+        let best = items.map(\.result.score).max() ?? 0
+        guard best > 0, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return items }
+        let frecency = app.frecency
+        return items.map { item in
+            let weight = frecency.weight(query: text, path: item.result.path)
+            guard weight > 0 else { return item }
+            var item = item
+            item.result.score += best * min(weight, 3)
+            return item
+        }
     }
 
     /// Rows that answer a different search than the ones shown.
@@ -905,12 +933,19 @@ final class SearchModel {
 
     func openSelection() {
         FileActions.open(selectedURLs)
-        recordRecent()
+        noteUse()
     }
 
     func revealSelection() {
         FileActions.reveal(selectedURLs)
+        noteUse()
+    }
+
+    /// The selection was acted on: the search goes into Recent Searches, and the files are
+    /// remembered for this search so they come first next time.
+    func noteUse() {
         recordRecent()
+        for url in selectedURLs { app.frecency.record(query: text, path: url.path) }
     }
 
     /// Adds a syntax example to the query (from the syntax popover).
