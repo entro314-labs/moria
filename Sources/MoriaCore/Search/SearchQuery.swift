@@ -147,6 +147,11 @@ public struct QueryParser: Sendable {
         parse(tokens: Self.tokenize(input))
     }
 
+    /// How many tokens `input` has (words, phrases and filters).
+    public static func tokenCount(_ input: String) -> Int {
+        tokenize(input).count
+    }
+
     func parse(tokens: [Token]) -> SearchQuery {
         var query = SearchQuery()
         for token in tokens {

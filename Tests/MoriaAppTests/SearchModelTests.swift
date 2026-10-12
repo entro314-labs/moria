@@ -180,6 +180,47 @@ struct ResultOrderTests {
 }
 
 @MainActor
+struct FieldTokenTests {
+    /// The field shows finished filters as tokens and the rest as text; the query text stays
+    /// the whole truth underneath.
+    @Test func finishedFiltersBecomeTokensAndTheRestStaysText() throws {
+        let (app, _) = try makeAppModel()
+        let model = SearchModel(app: app)
+        model.fieldWords = "invoice ext:p"
+        #expect(model.text == "invoice ext:p" && model.fieldWords == "invoice ext:p" && model.fieldTokens.isEmpty)
+        model.fieldWords = "invoice ext:pdf "
+        #expect(model.text == "invoice ext:pdf " && model.fieldWords == "invoice " && model.fieldTokens.map(\.label) == [".pdf"])
+        model.fieldWords = "invoice rent"
+        #expect(model.text == "ext:pdf invoice rent" && model.fieldWords == "invoice rent")
+        model.filters.size = .huge
+        #expect(model.fieldTokens.map(\.label) == [".pdf", "Over 1 GB"])
+        // Backspacing a token removes it from the text or the filters.
+        model.fieldTokens = Array(model.fieldTokens.dropLast())
+        #expect(model.filters.size == .any && model.fieldTokens.map(\.label) == [".pdf"])
+        model.fieldTokens = []
+        #expect(model.text == "invoice rent" && model.fieldTokens.isEmpty)
+    }
+
+    @Test func collectionsShowOnlyTokens() throws {
+        let (app, _) = try makeAppModel()
+        let model = SearchModel(app: app)
+        model.sidebarSelection = .collection("PDFs")
+        #expect(model.fieldWords.isEmpty && model.fieldTokens.map(\.label) == [".pdf", "Not in Library", "No hidden files"])
+        model.fieldTokens = Array(model.fieldTokens.dropFirst())
+        #expect(model.text == "-in:~/Library hidden:no " && model.fieldTokens.count == 2)
+    }
+
+    /// A regex, a request or a question is shown whole: no tokens.
+    @Test func wholeTextModesHaveNoTokens() throws {
+        let (app, _) = try makeAppModel()
+        let model = SearchModel(app: app)
+        model.scope = .regex
+        model.fieldWords = "ext:pdf "
+        #expect(model.fieldWords == "ext:pdf " && model.fieldTokens.isEmpty)
+    }
+}
+
+@MainActor
 struct AnswerModeTests {
     /// Answer is a mode like Ask: only with the model turned on, and typing doesn't search.
     @Test func answerModeWaitsForReturn() async throws {

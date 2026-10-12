@@ -25,17 +25,19 @@ extension QueryParser {
 
     /// The query text without the token at `index`, keeping every other token as typed.
     public func removingToken(at index: Int, from input: String) -> String {
-        Self.tokenize(input).enumerated()
-            .filter { $0.offset != index }
-            .map { _, token in
-                if token.quoted { return "\"\(token.text)\"" }
-                // Re-quote values with spaces: in:"~/My Files".
-                if token.text.contains(where: \.isWhitespace), let colon = token.text.firstIndex(of: ":") {
-                    return token.text[...colon] + "\"" + token.text[token.text.index(after: colon)...] + "\""
-                }
-                return token.text
+        tokenTexts(input).enumerated().filter { $0.offset != index }.map(\.element).joined(separator: " ")
+    }
+
+    /// Each token of `input` as it would be typed, in the order `chips(for:)` numbers them.
+    public func tokenTexts(_ input: String) -> [String] {
+        Self.tokenize(input).map { token in
+            if token.quoted { return "\"\(token.text)\"" }
+            // Re-quote values with spaces: in:"~/My Files".
+            if token.text.contains(where: \.isWhitespace), let colon = token.text.firstIndex(of: ":") {
+                return token.text[...colon] + "\"" + token.text[token.text.index(after: colon)...] + "\""
             }
-            .joined(separator: " ")
+            return token.text
+        }
     }
 
     private func describe(_ query: SearchQuery, tokenIndex: Int) -> QueryChip? {

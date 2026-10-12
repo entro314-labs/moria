@@ -45,7 +45,15 @@ struct MainView: View {
         }
         // A folder dragged from Finder onto the window is searched inside.
         .dropDestination(for: URL.self) { urls, _ in _ = model.searchInside(urls) }
-        .searchable(text: $model.text, placement: .toolbarPrincipal, prompt: Text(model.prompt))
+        // Filters are tokens in the field, as in Finder and Mail; the mode is the scope bar.
+        .searchable(text: $model.fieldWords, tokens: $model.fieldTokens, placement: .toolbarPrincipal, prompt: Text(model.prompt)) { token in
+            Label(token.label, systemImage: token.symbol)
+        }
+        .searchScopes($model.mode, activation: .onSearchPresentation) {
+            ForEach(SearchMode.allCases.filter { !$0.needsModel || model.canAsk }) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
         .searchSuggestions {
             ForEach(model.suggestions) { suggestion in
                 Label(suggestion.title, systemImage: suggestion.symbol)
@@ -122,6 +130,17 @@ struct MainView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                FilterOptions(filters: $model.filters, roots: app.settings.roots)
+            } label: {
+                Label("Filter", systemImage: "line.3.horizontal.decrease")
+            }
+            .help("Add a filter: kind, date, size, location")
+            Button("Criteria", systemImage: "slider.horizontal.3") { model.showCriteria = true }
+                .help("Build a detailed search from criteria (⇧⌘F)")
+        }
+        ToolbarSpacer(.fixed)
+        ToolbarItemGroup(placement: .primaryAction) {
             if model.canUseMeaning {
                 Toggle(isOn: $model.useMeaning) {
                     Label("Search by Meaning", systemImage: "sparkles")
@@ -147,37 +166,6 @@ struct MainView: View {
 extension Notification.Name {
     /// Posted with a query string to show it in the main window.
     static let moriaSearch = Notification.Name("MoriaSearch")
-}
-
-// MARK: - Mode menu
-
-/// Search mode as a compact menu at the start of the filter bar (⌘1–⌘5), replacing scope tabs.
-struct ModeMenu: View {
-    @Bindable var model: SearchModel
-
-    var body: some View {
-        Menu {
-            Picker("Mode", selection: $model.mode) {
-                ForEach(SearchMode.allCases.filter { !$0.needsModel || model.canAsk }) { mode in
-                    Label(mode.title, systemImage: mode.symbol).tag(mode)
-                }
-            }
-            .pickerStyle(.inline)
-            if !model.canAsk {
-                Divider()
-                SettingsLink { Text("Turn On Ask and Answer…") }
-            }
-        } label: {
-            // A single Text: menu buttons reduce a Label to its icon.
-            Text("\(Image(systemName: model.mode.symbol))  \(model.mode.title)")
-        }
-        .font(.caption.weight(.medium))
-        .menuStyle(.button)
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .fixedSize()
-        .help("\(model.mode.help) (⌘1–⌘5)")
-    }
 }
 
 // MARK: - Results area

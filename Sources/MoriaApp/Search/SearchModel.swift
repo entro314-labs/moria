@@ -762,7 +762,9 @@ final class SearchModel {
                 askMode = false
                 text = QueryParser().removingToken(at: index, from: interpretation.query)
             } else {
-                text = QueryParser().removingToken(at: index, from: text)
+                // The trailing space stays, so the remaining filters stay tokens in the field.
+                let trailing = text.last?.isWhitespace == true ? " " : ""
+                text = QueryParser().removingToken(at: index, from: text) + trailing
             }
         case let .sidebar(keyPath):
             let empty = FilterState()
@@ -774,6 +776,60 @@ final class SearchModel {
             case \FilterState.hideSystemFiles: filters.hideSystemFiles = false
             case \FilterState.hideCloudOnly: filters.hideCloudOnly = false
             default: break
+            }
+        }
+    }
+
+    // MARK: - The search field's words and tokens
+
+    /// Tokens stand in for filters only where the text is a query: not for a regex, a request
+    /// to Ask or a question to Answer, which the field shows whole.
+    private var tokensApply: Bool { scope != .regex && !askMode && !answerMode }
+
+    /// Filters typed and finished (followed by a space, or not last): a filter still being
+    /// typed stays text so it can be completed.
+    private var finishedTypedChips: [FilterChip] {
+        let count = QueryParser.tokenCount(text)
+        let open = text.last?.isWhitespace != true
+        return QueryParser().chips(for: text).compactMap { chip in
+            guard !(open && chip.tokenIndex == count - 1) else { return nil }
+            return FilterChip(label: chip.label, symbol: chip.symbol, isExclusion: chip.isExclusion, source: .typed(chip.tokenIndex))
+        }
+    }
+
+    /// What the search field shows as text: the query without its finished filters.
+    var fieldWords: String {
+        get {
+            guard tokensApply else { return text }
+            let finished = Set(finishedTypedChips.compactMap { if case let .typed(index) = $0.source { index } else { nil } })
+            guard !finished.isEmpty else { return text }
+            let rest = QueryParser().tokenTexts(text).enumerated().filter { !finished.contains($0.offset) }.map(\.element).joined(separator: " ")
+            return !rest.isEmpty && text.last?.isWhitespace == true ? rest + " " : rest
+        }
+        set {
+            guard tokensApply else { text = newValue; return }
+            let parts = QueryParser().tokenTexts(text)
+            let kept = finishedTypedChips.compactMap { if case let .typed(index) = $0.source { parts[index] } else { nil } }
+            text = kept.isEmpty ? newValue : kept.joined(separator: " ") + " " + newValue
+        }
+    }
+
+    /// What the search field shows as tokens: the finished typed filters and the chosen ones.
+    /// Setting fewer removes the missing ones (the field's backspace and ×).
+    var fieldTokens: [FilterChip] {
+        get {
+            guard tokensApply else { return [] }
+            return finishedTypedChips + activeChips.filter { if case .sidebar = $0.source { true } else { false } }
+        }
+        set {
+            let removed = fieldTokens.filter { chip in !newValue.contains { $0.id == chip.id } }
+            // Typed tokens from the highest index down: each removal renumbers the rest.
+            for chip in removed.sorted(by: { a, b in
+                if case let .typed(x) = a.source, case let .typed(y) = b.source { return x > y }
+                if case .typed = a.source { return true }
+                return false
+            }) {
+                remove(chip)
             }
         }
     }

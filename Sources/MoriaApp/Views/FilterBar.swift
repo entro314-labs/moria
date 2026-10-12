@@ -1,9 +1,9 @@
 import MoriaCore
 import SwiftUI
 
-/// The filter bar under the toolbar (Linear-style): "+ Filter" adds a filter from a menu;
-/// each chosen filter is a chip whose menu changes it; typed filters appear as removable chips
-/// in plain words; facet chips on the right narrow by kind with counts.
+/// The row under the scope bar, shown only when it has something to say: the regex builder in
+/// Regex mode, what Ask understood, Clear for the filters (which are tokens in the field),
+/// and kind facets with counts to narrow the results in one click.
 struct FilterBar: View {
     @Bindable var model: SearchModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -11,69 +11,63 @@ struct FilterBar: View {
     /// Chips grow in and shrink out; with Reduce Motion they fade.
     private var animation: Animation? { reduceMotion ? nil : .snappy(duration: 0.2) }
 
+    private var hasFilters: Bool { model.filters.isActive || !model.typedChips.isEmpty }
+
     var body: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ModeMenu(model: model)
-                    if model.mode == .regex {
-                        Button("Regex Builder") { model.showRegexBuilder = true }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .font(.caption.weight(.medium))
-                            .help("Build and test a pattern (⌥⌘R)")
-                    }
-                    AddFilterMenu(filters: $model.filters, roots: model.app.settings.roots)
-                    Button("Criteria") { model.showCriteria = true }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .font(.caption.weight(.medium))
-                        .help("Build a detailed search from criteria (⇧⌘F)")
-                    if model.interpretation != nil {
-                        Label("Understood as", systemImage: "sparkles")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.purple)
-                    }
-                    ForEach(model.typedChips) { chip in
-                        ActiveChip(chip: chip) { model.remove(chip) }
-                            .transition(.chip(reduceMotion))
-                    }
-                    if model.interpretation != nil {
-                        Button("Edit as Query") { model.editInterpretation() }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                    }
-                    FilterMenus(filters: $model.filters, roots: model.app.settings.roots)
-                    if model.filters.isActive || !model.typedChips.isEmpty {
-                        Button("Clear") {
-                            model.filters = FilterState()
-                            // Keeps the search words and phrases; every chip goes.
-                            let query = QueryParser().parse(model.text)
-                            model.text = (query.terms + query.phrases.map { "\"\($0)\"" }).joined(separator: " ")
+        if model.mode == .regex || model.interpretation != nil || hasFilters || !model.facets.isEmpty {
+            HStack(spacing: 8) {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        if model.mode == .regex {
+                            Button("Regex Builder", systemImage: "asterisk") { model.showRegexBuilder = true }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .font(.caption.weight(.medium))
+                                .help("Build and test a pattern (⌥⌘R)")
                         }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .help("Remove all filters")
+                        if model.interpretation != nil {
+                            Label("Understood as", systemImage: "sparkles")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.purple)
+                            ForEach(model.typedChips) { chip in
+                                ActiveChip(chip: chip) { model.remove(chip) }
+                                    .transition(.chip(reduceMotion))
+                            }
+                            Button("Edit as Query") { model.editInterpretation() }
+                                .buttonStyle(.link)
+                                .font(.caption)
+                        }
+                        if hasFilters {
+                            Button("Clear Filters") {
+                                model.filters = FilterState()
+                                // Keeps the search words and phrases; every filter goes.
+                                let query = QueryParser().parse(model.text)
+                                model.text = (query.terms + query.phrases.map { "\"\($0)\"" }).joined(separator: " ")
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("Remove every filter, typed or chosen")
+                        }
                     }
+                    .padding(.vertical, 1)
+                    .animation(animation, value: model.activeChips.map(\.id))
                 }
-                .padding(.vertical, 1)
-                .animation(animation, value: model.activeChips.map(\.id))
-            }
-            .scrollIndicators(.never)
-            if !model.facets.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(model.facets) { facet in
-                        FacetChip(facet: facet) { exclude in model.applyFacet(facet, exclude: exclude) }
-                            .transition(.chip(reduceMotion))
+                .scrollIndicators(.never)
+                if !model.facets.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(model.facets) { facet in
+                            FacetChip(facet: facet) { exclude in model.applyFacet(facet, exclude: exclude) }
+                                .transition(.chip(reduceMotion))
+                        }
                     }
+                    .fixedSize()
+                    .animation(animation, value: model.facets.map(\.id))
                 }
-                .fixedSize()
-                .animation(animation, value: model.facets.map(\.id))
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
     }
 }
 
@@ -81,26 +75,6 @@ extension AnyTransition {
     /// A chip grows in and shrinks out; with Reduce Motion it fades.
     static func chip(_ reduceMotion: Bool) -> AnyTransition {
         reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity)
-    }
-}
-
-/// "+ Filter": every filter type, each with its values as a submenu.
-private struct AddFilterMenu: View {
-    @Binding var filters: FilterState
-    let roots: [String]
-
-    var body: some View {
-        Menu {
-            FilterOptions(filters: $filters, roots: roots)
-        } label: {
-            Text("\(Image(systemName: "line.3.horizontal.decrease"))  Filter")
-        }
-        .font(.caption.weight(.medium))
-        .menuStyle(.button)
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .fixedSize()
-        .help("Add a filter")
     }
 }
 
@@ -185,71 +159,6 @@ struct FilterOptions: View {
             }
         }
         if only == .location { items } else { Menu("Location") { items } }
-    }
-}
-
-/// One chip per filter chosen in the bar; clicking opens its menu, × removes it.
-private struct FilterMenus: View {
-    @Binding var filters: FilterState
-    let roots: [String]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if !filters.kinds.isEmpty {
-            chip("square.grid.2x2", "Kind", filters.kinds.map(\.displayName).sorted().joined(separator: ", "), .kind) {
-                filters.kinds = []
-            }
-        }
-        if filters.date != .any {
-            chip("calendar", filters.dateUsesCreation ? "Created" : "Modified", filters.date.rawValue, .date) {
-                filters.date = .any
-            }
-        }
-        if filters.size != .any {
-            chip("scalemass", "Size", filters.size.rawValue, .size) { filters.size = .any }
-        }
-        if let folder = filters.folder {
-            chip("folder", "In", FileManager.default.displayName(atPath: folder), .location) { filters.folder = nil }
-        }
-        if filters.hideSystemFiles {
-            chip("eye.slash", "Hide", "Library & hidden", .options) { filters.hideSystemFiles = false }
-        }
-        if filters.hideCloudOnly {
-            chip("icloud.slash", "Hide", "Cloud-only", .options) { filters.hideCloudOnly = false }
-        }
-    }
-
-    private func chip(_ symbol: String, _ field: String, _ value: String, _ category: FilterOptions.Category,
-                      remove: @escaping () -> Void) -> some View {
-        HStack(spacing: 0) {
-            Menu {
-                FilterOptions(filters: $filters, roots: roots, only: category)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: symbol).imageScale(.small)
-                    Text(field).foregroundStyle(.secondary)
-                    Text(value).fontWeight(.medium)
-                }
-                .font(.caption)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .padding(.leading, 8)
-            .padding(.vertical, 3)
-            Button("Remove", systemImage: "xmark", action: remove)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .imageScale(.small)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .help("Remove this filter")
-        }
-        .chipBackground(.tint)
-        .foregroundStyle(.tint)
-        .transition(.chip(reduceMotion))
     }
 }
 

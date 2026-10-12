@@ -16,7 +16,7 @@ Deep search for macOS: every file name, the text inside documents, PDFs, code an
 ## Using it
 
 - The search field is at the top. Results show why they matched (Name, Contents · N, Text in image, Meaning) with a highlighted excerpt.
-- The bar under it holds the search **mode** (Everything, Names, Contents, Regex, Ask, Answer — ⌘1…⌘6), **+ Filter** menus, the active filters as chips, and one-click kind facets with counts.
+- The scope bar under it sets the **mode** (Everything, Names, Contents, Regex, Ask, Answer — ⌘1…⌘6). Filters are tokens in the field: type `ext:pdf` and a space, or pick one from the toolbar's **Filter** menu; one-click kind facets with counts appear with mixed results.
 - The sidebar has **Home** (recently changed files), **Collections** (Recent Documents, Downloads, Screenshots, PDFs, Images, Recent Code, Large Files, Duplicates), **Saved Searches** (⌘S) and **Locations**.
 - The inspector shows the Quick Look preview, the info, or both, with every matching line (⌘G / ⇧⌘G to step through).
 - **Criteria builder** (⇧⌘F) builds detailed searches row by row, HoudahSpot-style; **Regex builder** (⌥⌘R) composes and tests patterns. Both produce ordinary query text you can save.
