@@ -230,7 +230,9 @@ final class AppModel {
         }
     }
 
+    /// Rescan Now resumes paused indexing, as Rebuild does.
     func rescan() {
+        progress.isPaused = false
         Task { await controller.requestFullScan() }
     }
 

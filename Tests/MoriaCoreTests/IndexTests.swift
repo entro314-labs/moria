@@ -284,6 +284,10 @@ struct IndexTests {
         // Confirming a rebuild means now: it resumes paused indexing.
         await controller.rebuild()
         #expect(await !controller.currentProgress().isPaused)
+        // So does asking for a rescan: queued behind a pause, it would wait without a word.
+        await controller.setPaused(true)
+        await controller.requestFullScan()
+        #expect(await !controller.currentProgress().isPaused)
     }
 
     /// A change to what is crawled saves the settings and forgets the resume point in one

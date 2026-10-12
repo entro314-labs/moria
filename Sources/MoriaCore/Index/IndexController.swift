@@ -108,8 +108,12 @@ public actor IndexController {
         wake = nil
     }
 
+    /// Schedules a full scan, resuming indexing if it was paused (asking for a rescan means now,
+    /// as for a rebuild): a scan queued behind a pause would run with no sign that it is waiting.
     public func requestFullScan() {
         fullScanRequested = true
+        state.isPaused = false
+        publish(phase: state.phase)
         wake?.yield()
     }
 
