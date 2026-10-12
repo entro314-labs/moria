@@ -383,6 +383,24 @@ struct IndexTests {
         #expect(try await names("(?-i)monthly rent").isEmpty)
     }
 
+    /// A minified bundle is one line of hundreds of kilobytes; a match in it must not end the
+    /// search, and the line shown is cut like document text.
+    @Test func regexSearchSurvivesVeryLongLines() async throws {
+        guard RegexSearcher.locateRipgrep() != nil else { return }
+        let filler = String(repeating: "var a=1;", count: 40_000)  // 320 KB, one line
+        try Data((filler + "zebraNeedle();" + filler).utf8).write(to: root.appending(path: "Documents/bundle.js"))
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let searcher = try RegexSearcher(database: database)
+
+        var hits: [RegexHit] = []
+        for try await hit in searcher.search(pattern: "zebraNeedle", filters: SearchQuery()) {
+            hits.append(hit)
+        }
+        let bundle = try #require(hits.first { $0.path.hasSuffix("bundle.js") })
+        #expect(bundle.lines.count == 1 && bundle.lines[0].number == 1 && bundle.lines[0].text.count == 300)
+    }
+
     @Test func filesOutsideTheSemanticIndexNeverWaitForEmbedding() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)

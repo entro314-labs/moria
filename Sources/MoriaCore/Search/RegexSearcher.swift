@@ -217,7 +217,11 @@ public struct RegexSearcher: Sendable {
             async let errorHead = ProcessRunner.head(of: execution.standardError, maxBytes: 4096)
             var currentPath: String?
             var lines: [RegexHit.Line] = []
-            for try await line in execution.standardOutput.strings() {
+            // `--max-columns` doesn't apply to JSON output: a match in a minified bundle is one
+            // event of hundreds of kilobytes, over the default 128 KB line limit, which would end
+            // the whole search. Lines are bounded by `maxRipgrepFileBytes` and cut to 300
+            // characters below, as for document text.
+            for try await line in execution.standardOutput.strings(bufferingPolicy: .unbounded) {
                 guard let event = try? JSONDecoder().decode(RipgrepEvent.self, from: Data(line.utf8)) else { continue }
                 switch event.type {
                 case "begin":
@@ -225,7 +229,7 @@ public struct RegexSearcher: Sendable {
                     lines = []
                 case "match":
                     if let number = event.data.lineNumber, let text = event.data.lines?.text {
-                        lines.append(RegexHit.Line(number: number, text: text.trimmingCharacters(in: .newlines)))
+                        lines.append(RegexHit.Line(number: number, text: String(text.trimmingCharacters(in: .newlines).prefix(300))))
                     }
                 case "end":
                     if let currentPath, !lines.isEmpty { onFile(currentPath, lines) }
