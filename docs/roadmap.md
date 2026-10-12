@@ -7,24 +7,13 @@ reasons.
 Anything that stores new data in the index needs a new migration (`v4`, …); applied migrations
 are never edited.
 
-## Small
-
-- **One transaction for a settings change.** `IndexController.updateSettings` saves the
-  settings and clears the FSEvents resume point in two writes; a crash between them keeps new
-  crawl rules with an old resume point until the next full scan. One `pool.write` for both.
-- **Rescan Now while paused.** The scan is queued until indexing resumes, and nothing says so.
-- **Failures behind `try?`.** Stats, sidebar counts and excerpts vanish silently on a database
-  error (`AppModel.refreshStats`, `SearchModel.loadHome`, `requestDetails`); report them in
-  `app.lastError` like the other app failures.
-- **Sidebar counts.** `loadHome` counts each collection and saved search by fetching up to
-  1000 full rows; measure on a large index before changing it, since the badge caps at 999+.
-
 ## Significant
 
 - **Tests for the app layer.** `MoriaAppTests` covers Trash undo, saved searches, sidebar
-  folders, folder drops, the Find Files action, Stop Search and query building (modes and
-  filters); `SearchModel`'s hand-offs between the quick panel, builders and windows, and its
-  selection, still have none.
+  folders, folder drops, the Find Files action, Stop Search, query building (modes and
+  filters) and the model side of the hand-offs (requests, saved searches, Find Similar, the
+  sidebar, chips); the views' side of them (builder buttons, the quick panel's ⌘O) and the
+  selection still have none.
 
 ## Major
 

@@ -27,5 +27,8 @@ If Moria ever answers questions about files (RAG), the fit is a custom `Tool` ov
   is shown to mishandle it.
 - **`resultType` and cache hints on handshake-era MCP responses.** Clients "MUST treat an absent
   `resultType` as complete"; adding them would change tested output for nothing.
-- **A count-only engine method for sidebar badges.** One call site, unmeasured; the badge caps
-  at 999+ anyway (roadmap, "Sidebar counts").
+- **A count-only engine method for sidebar badges.** Measured on 2026-10-12 on a 4.3-million-entry
+  index (3.6 M files): the seven collection counts take 5, 67, 83, 17, 76, 51 and 82 ms, about
+  0.4 s in all, once per sidebar appearance or saved-search change, in the background. A
+  count-only query would save only the fetch of up to 1000 rows after the candidate scan, which
+  is where the time goes. Not worth an engine entry point.
