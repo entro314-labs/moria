@@ -226,6 +226,8 @@ private struct InfoPane: View {
                                     in: RoundedRectangle(cornerRadius: 5))
                         .id(index)
                         .onTapGesture { currentMatch = index }
+                        // The highlight moves to the next match instead of jumping.
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.15), value: currentMatch)
                     }
                     if total > Self.shownLines {
                         Text("and \((total - Self.shownLines).formatted()) more").font(.caption).foregroundStyle(.secondary).padding(.top, 4)

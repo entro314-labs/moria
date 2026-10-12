@@ -6,6 +6,10 @@ import SwiftUI
 /// in plain words; facet chips on the right narrow by kind with counts.
 struct FilterBar: View {
     @Bindable var model: SearchModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Chips grow in and shrink out; with Reduce Motion they fade.
+    private var animation: Animation? { reduceMotion ? nil : .snappy(duration: 0.2) }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -32,6 +36,7 @@ struct FilterBar: View {
                     }
                     ForEach(model.typedChips) { chip in
                         ActiveChip(chip: chip) { model.remove(chip) }
+                            .transition(.chip(reduceMotion))
                     }
                     if model.interpretation != nil {
                         Button("Edit as Query") { model.editInterpretation() }
@@ -53,19 +58,29 @@ struct FilterBar: View {
                     }
                 }
                 .padding(.vertical, 1)
+                .animation(animation, value: model.activeChips.map(\.id))
             }
             .scrollIndicators(.never)
             if !model.facets.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(model.facets) { facet in
                         FacetChip(facet: facet) { exclude in model.applyFacet(facet, exclude: exclude) }
+                            .transition(.chip(reduceMotion))
                     }
                 }
                 .fixedSize()
+                .animation(animation, value: model.facets.map(\.id))
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
+    }
+}
+
+extension AnyTransition {
+    /// A chip grows in and shrinks out; with Reduce Motion it fades.
+    static func chip(_ reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity)
     }
 }
 
@@ -177,6 +192,7 @@ struct FilterOptions: View {
 private struct FilterMenus: View {
     @Binding var filters: FilterState
     let roots: [String]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if !filters.kinds.isEmpty {
@@ -233,6 +249,7 @@ private struct FilterMenus: View {
         }
         .chipBackground(.tint)
         .foregroundStyle(.tint)
+        .transition(.chip(reduceMotion))
     }
 }
 

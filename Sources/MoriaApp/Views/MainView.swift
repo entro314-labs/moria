@@ -124,6 +124,7 @@ struct MainView: View {
             if model.canUseMeaning {
                 Toggle(isOn: $model.useMeaning) {
                     Label("Search by Meaning", systemImage: "sparkles")
+                        .symbolEffect(.bounce, value: reduceMotion ? false : model.useMeaning)
                 }
                 .help("Also find documents related in meaning, not only by their words (⇧⌘M)")
                 .disabled(model.mode == .regex)
@@ -182,31 +183,76 @@ struct ModeMenu: View {
 
 private struct ResultsArea: View {
     let model: SearchModel
+    @Environment(AppModel.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The search has run long enough to show progress: every keystroke starts a search, and
+    /// a spinner for each would flash between the old rows and the new.
+    @State private var slow = false
+
+    private enum Content: Equatable {
+        case results, home, searching, stopped, problem(String), empty
+    }
+
+    private var content: Content {
+        if !model.items.isEmpty { return .results }
+        if model.text.isEmpty, !model.filters.isActive { return .home }
+        if model.isSearching { return .searching }
+        if model.isStopped { return .stopped }
+        if let message = model.message, message != "No matches" { return .problem(message) }
+        return .empty
+    }
 
     var body: some View {
-        if !model.items.isEmpty {
-            ResultsTable(model: model)
-        } else if model.text.isEmpty, !model.filters.isActive {
-            HomeView(model: model)
-        } else if model.isSearching {
-            VStack(spacing: 12) {
-                ProgressView("Searching…")
-                Button("Stop", action: model.stop)
-                    .help("Stop this search (⌘.)")
+        ZStack {
+            switch content {
+            case .results:
+                ResultsTable(model: model)
+            case .home:
+                HomeView(model: model)
+            case .searching:
+                if slow {
+                    VStack(spacing: 12) {
+                        ProgressView("Searching…")
+                        Button("Stop", action: model.stop)
+                            .help("Stop this search (⌘.)")
+                    }
+                }
+            case .stopped:
+                ContentUnavailableView {
+                    Label("Search Stopped", systemImage: "stop.circle")
+                } description: {
+                    Text("Change the search, or search again.")
+                } actions: {
+                    Button("Search Again") { model.search(debounce: false) }
+                }
+            case let .problem(message):
+                ContentUnavailableView("Search Problem", systemImage: "exclamationmark.magnifyingglass", description: Text(message))
+            case .empty:
+                ContentUnavailableView {
+                    Label(model.text.isEmpty ? "No Results" : "No Results for “\(model.text)”", systemImage: "magnifyingglass")
+                } description: {
+                    Text(emptyHint)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if model.isStopped {
-            ContentUnavailableView {
-                Label("Search Stopped", systemImage: "stop.circle")
-            } description: {
-                Text("Change the search, or search again.")
-            } actions: {
-                Button("Search Again") { model.search(debounce: false) }
-            }
-        } else if let message = model.message, message != "No matches" {
-            ContentUnavailableView("Search Problem", systemImage: "exclamationmark.magnifyingglass", description: Text(message))
-        } else {
-            ContentUnavailableView.search(text: model.text)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The states cross-fade instead of swapping.
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: content)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: slow)
+        .task(id: model.isSearching) {
+            slow = false
+            guard model.isSearching else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled { slow = true }
+        }
+    }
+
+    /// While the index is being built, nothing found may mean not read yet.
+    private var emptyHint: String {
+        switch app.progress.phase {
+        case .scanning: "Moria is still scanning your files; more may turn up as the scan continues."
+        case .extracting, .recognizingText: "Moria is still reading file contents; more may turn up as indexing continues."
+        case .updating, .readingDetails, .embedding, .idle: "Check the spelling or try a new search."
         }
     }
 }
@@ -216,6 +262,7 @@ private struct ResultsArea: View {
 /// Finder-style footer: result count on the left, indexing status on the right.
 private struct StatusBar: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: SearchModel
     @State private var showCoverage = false
 
@@ -223,6 +270,8 @@ private struct StatusBar: View {
         HStack(spacing: 10) {
             Text(model.summary)
                 .lineLimit(1)
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : .default, value: model.items.count)
             if model.isSearching {
                 ProgressView().controlSize(.mini)
                 Button("Stop", action: model.stop)

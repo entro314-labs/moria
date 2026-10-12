@@ -10,6 +10,7 @@ struct SidebarView: View {
     @State private var newName = ""
     @State private var choosingFolder = false
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
@@ -105,6 +106,9 @@ struct SidebarView: View {
     private func row(_ title: String, _ symbol: String, count: Int?) -> some View {
         Label(title, systemImage: symbol)
             .badge(count.map { $0 >= 1000 ? Text("999+") : Text($0.formatted()) })
+            // A count that changes rolls to the new digits.
+            .contentTransition(.numericText())
+            .animation(reduceMotion ? nil : .default, value: count)
     }
 
     private var locations: [String] {

@@ -51,14 +51,23 @@ final class QuickPanelController: NSObject, NSWindowDelegate {
             let frame = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.maxY - panel.frame.height - frame.height * 0.12))
         }
+        // Fades in, as Spotlight does; appears at once with Reduce Motion.
+        let fade = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        panel.alphaValue = fade ? 0 : 1
         panel.makeKeyAndOrderFront(nil)
+        if fade {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                panel.animator().alphaValue = 1
+            }
+        }
         NotificationCenter.default.post(name: .moriaQuickPanelShown, object: nil)
     }
 
     func close() {
         panel.orderOut(nil)
+        panel.alphaValue = 1
     }
-
 
     func windowDidResignKey(_ notification: Notification) {
         close()
@@ -85,6 +94,7 @@ struct QuickPanelView: View {
     let close: () -> Void
     let openInMain: (SearchRequest) -> Void
     @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedIndex: Int? {
         model.items.firstIndex { model.selection.contains($0.id) }
@@ -174,6 +184,9 @@ struct QuickPanelView: View {
         }
         .frame(width: 720)
         .frame(maxHeight: 460, alignment: .top)
+        // The panel grows for the results and the chips instead of jumping.
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: model.items.isEmpty)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: model.activeChips.isEmpty)
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onKeyPress(.upArrow) { move(-1); return .handled }
@@ -229,6 +242,7 @@ private struct QuickRow: View {
     let item: ResultItem
     let snippet: String?
     let selected: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 10) {
@@ -256,6 +270,7 @@ private struct QuickRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(selected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 8))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: selected)
         .contentShape(Rectangle())
     }
 }
