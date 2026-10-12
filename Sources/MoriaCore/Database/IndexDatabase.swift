@@ -256,11 +256,18 @@ public final class IndexDatabase: Sendable {
     }
 
     public func setMeta(_ key: String, _ value: String?) throws {
+        try setMeta([(key, value)])
+    }
+
+    /// Writes several keys in one transaction (nil deletes), so a crash leaves all or none.
+    func setMeta(_ entries: [(key: String, value: String?)]) throws {
         try pool.write { db in
-            if let value {
-                try db.execute(sql: "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", arguments: [key, value])
-            } else {
-                try db.execute(sql: "DELETE FROM meta WHERE key = ?", arguments: [key])
+            for (key, value) in entries {
+                if let value {
+                    try db.execute(sql: "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", arguments: [key, value])
+                } else {
+                    try db.execute(sql: "DELETE FROM meta WHERE key = ?", arguments: [key])
+                }
             }
         }
     }
@@ -271,8 +278,11 @@ public final class IndexDatabase: Sendable {
     }
 
     public func saveSettings(_ settings: MoriaSettings) throws {
-        let data = try JSONEncoder().encode(settings)
-        try setMeta("settings", String(decoding: data, as: UTF8.self))
+        try setMeta([("settings", try Self.json(settings))])
+    }
+
+    static func json(_ settings: MoriaSettings) throws -> String {
+        String(decoding: try JSONEncoder().encode(settings), as: UTF8.self)
     }
 
     // MARK: - Stats

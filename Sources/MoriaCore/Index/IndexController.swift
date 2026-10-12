@@ -163,18 +163,21 @@ public actor IndexController {
         // symlink resolution strip "/private", so events under such roots would be dropped.
         new.roots = new.roots.map { Volumes.canonicalPath($0) ?? $0 }
         let old = settings
-        try database.saveSettings(new)
+        if Self.needsFullScan(from: old, to: new) {
+            // Forget the resume point until that scan completes, so any controller (the app at
+            // its next launch, after a change made by the CLI) scans instead of resuming. In the
+            // same transaction as the settings: new crawl rules with an old resume point would
+            // miss what the rules now include until the next full scan.
+            try database.setMeta([("settings", try IndexDatabase.json(new)), (MetaKey.eventID, nil)])
+        } else {
+            try database.saveSettings(new)
+        }
         try adopt(new)
         let limitsChanged = old.maxContentKilobytes != new.maxContentKilobytes
             || old.maxFileMegabytes != new.maxFileMegabytes
         var requeueKinds: Set<FileKind> = []
         if old.ocrImages != new.ocrImages { requeueKinds.insert(.image) }
         if old.ocrScannedPDFs != new.ocrScannedPDFs { requeueKinds.insert(.pdf) }
-        if Self.needsFullScan(from: old, to: new) {
-            // Forget the resume point until that scan completes, so any controller (the app at
-            // its next launch, after a change made by the CLI) scans instead of resuming.
-            try database.setMeta(MetaKey.eventID, nil)
-        }
         // Scope changes are applied by the full scan, which re-marks excluded files.
         if limitsChanged {
             try database.requeueContent()

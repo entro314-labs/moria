@@ -41,3 +41,4 @@
 - `moria mcp` also speaks the 2026-07-28 protocol revision, which drops the `initialize` handshake: it answers `server/discover`, serves requests that name their protocol version in `_meta`, and refuses other versions with the ones it supports. Handshake clients (2025-11-25 and earlier) work as before.
 - `moria search --regex` takes `--filters "ext:swift in:~/Code"` to narrow the files, as the app's filters and the MCP tool's `filters` do.
 - Settings › Locations and Contents: the folder-name lists keep an edit when the field loses focus, not only on Return.
+- A change to what is crawled saves the settings and forgets the FSEvents resume point in one transaction, so a crash between the two can no longer leave new rules with an old resume point.

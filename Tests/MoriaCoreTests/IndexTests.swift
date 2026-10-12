@@ -286,6 +286,30 @@ struct IndexTests {
         #expect(await !controller.currentProgress().isPaused)
     }
 
+    /// A change to what is crawled saves the settings and forgets the resume point in one
+    /// transaction; other changes leave the resume point alone.
+    @Test func crawlRuleChangesForgetTheResumePointWithTheSettings() async throws {
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.indexNow(full: true)
+        let resumePoint = try #require(try database.meta("fsevents.lastID"))
+
+        var settings = await controller.settings
+        settings.ocrScannedPDFs.toggle()
+        try await controller.updateSettings(settings)
+        #expect(try database.meta("fsevents.lastID") == resumePoint)
+        #expect(try database.loadSettings() == settings)
+
+        settings.excludedNames.append("Caches")
+        try await controller.updateSettings(settings)
+        #expect(try database.meta("fsevents.lastID") == nil)
+        #expect(try database.loadSettings() == settings)
+
+        // The write behind it takes every key together, and nil removes one.
+        try database.setMeta([("a", "1"), ("b", "2")])
+        try database.setMeta([("a", nil), ("b", "3")])
+        #expect(try database.meta("a") == nil && database.meta("b") == "3")
+    }
+
     @Test func picksUpChangesFromFSEvents() async throws {
         let (database, controller) = try await TestSupport.makeIndex(root: root)
         try await controller.indexNow(full: true)
