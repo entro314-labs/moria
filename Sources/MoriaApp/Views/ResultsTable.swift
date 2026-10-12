@@ -118,6 +118,7 @@ struct ResultsTable: NSViewRepresentable {
         weak var table: ResultsTableView?
         private(set) var items: [ResultItem] = []
         private var detailsRevision = -1
+        private var resultsGeneration = 0
         private var focusRequest = 0
         private var quickLookRequest = 0
         private var applyingSelection = false
@@ -139,11 +140,21 @@ struct ResultsTable: NSViewRepresentable {
         func update(model: SearchModel) {
             self.model = model
             guard let table else { return }
-            if model.items.map(\.id) != items.map(\.id) || model.items != items {
-                // Back to the top for a new search, not when results arrive in batches (regex).
-                let newSearch = model.items.first?.id != items.first?.id
+            if model.items != items {
+                let newSearch = model.resultsGeneration != resultsGeneration
+                resultsGeneration = model.resultsGeneration
+                let appended = !newSearch && model.items.count > items.count
+                    && model.items.prefix(items.count).map(\.id) == items.map(\.id)
+                let shown = items.count
                 items = model.items
-                table.reloadData()
+                if appended {
+                    // Rows a running regex search found, below the ones shown: they slide in.
+                    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    table.insertRows(at: IndexSet(shown..<items.count), withAnimation: reduceMotion ? [] : .effectFade)
+                } else {
+                    table.reloadData()
+                }
+                // Back to the top for a new search; a running regex search keeps the place.
                 if newSearch, !items.isEmpty { table.scrollRowToVisible(0) }
             } else if model.detailsRevision != detailsRevision {
                 let visible = table.rows(in: table.visibleRect)

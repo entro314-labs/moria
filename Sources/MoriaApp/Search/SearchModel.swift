@@ -159,6 +159,10 @@ final class SearchModel {
     private(set) var recentFiles: [SearchResult] = []
 
     private(set) var items: [ResultItem] = []
+    /// Bumped when the rows stand for a different search. Rows a running regex search adds
+    /// keep the generation, so the table goes back to the top for one and keeps its place
+    /// for the other.
+    private(set) var resultsGeneration = 0
     var selection: Set<Int64> = [] {
         // The ⌘K palette acts on the selection; it closes when there is none.
         didSet { if selection.isEmpty { showActions = false } }
@@ -354,7 +358,7 @@ final class SearchModel {
         notice = nil
         let text = text.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty || filters.isActive else {
-            items = []
+            replaceItems([])
             selection = []
             message = nil
             elapsed = nil
@@ -382,7 +386,7 @@ final class SearchModel {
         cancelWork()
         isSearching = false
         if !itemsAreFromRunningSearch {
-            items = []
+            replaceItems([])
             selection = []
         }
         isStopped = true
@@ -433,7 +437,7 @@ final class SearchModel {
             return
         } catch {
             guard !Task.isCancelled else { return }
-            items = []
+            replaceItems([])
             message = "Search failed: \(error)"
         }
         isSearching = false
@@ -444,7 +448,7 @@ final class SearchModel {
         message = nil
         details = [:]
         pendingDetails = []
-        items = []
+        replaceItems([])
         itemsAreFromRunningSearch = true
         activeQuery = SearchQuery()
         let clock = ContinuousClock()
@@ -486,6 +490,8 @@ final class SearchModel {
         }
         guard !Task.isCancelled else { return }
         items += newItems
+        // The header shows the chosen column; relevance keeps the order the hits were found in.
+        if sort != .relevance { applySort() }
         if selection.isEmpty, let first = items.first { selection = [first.id] }
     }
 
@@ -525,10 +531,16 @@ final class SearchModel {
 
     private func show(_ newItems: [ResultItem]) {
         let previous = selection
-        items = newItems
+        replaceItems(newItems)
         applySort()
         selection = previous.intersection(Set(items.map(\.id)))
         if selection.isEmpty, let first = items.first { selection = [first.id] }
+    }
+
+    /// Rows that answer a different search than the ones shown.
+    private func replaceItems(_ newItems: [ResultItem]) {
+        items = newItems
+        resultsGeneration += 1
     }
 
     private func applySort() {

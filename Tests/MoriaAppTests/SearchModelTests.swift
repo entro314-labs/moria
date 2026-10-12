@@ -127,26 +127,60 @@ struct HandOffTests {
     }
 }
 
+/// A search model on a scratch index of two text files.
+@MainActor
+func indexedModel() async throws -> SearchModel {
+    let (app, _) = try makeAppModel()
+    let root = FileManager.default.temporaryDirectory.appending(path: "moria-stop-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data("quarterly invoice".utf8).write(to: root.appending(path: "invoice.txt"))
+    try Data("holiday plans".utf8).write(to: root.appending(path: "plans.txt"))
+    var settings = app.settings
+    settings.roots = [root.resolvingSymlinksInPath().path]
+    try await app.controller.updateSettings(settings)
+    try await app.controller.indexNow(full: true)
+    return SearchModel(app: app)
+}
+
+/// Waits for the running search to finish.
+@MainActor
+func settle(_ model: SearchModel) async throws {
+    for _ in 0..<200 where model.isSearching { try await Task.sleep(for: .milliseconds(10)) }
+}
+
+@MainActor
+struct ResultOrderTests {
+    /// Regex results arrive in batches; each batch keeps the chosen sort, as the header shows it.
+    @Test func regexResultsFollowTheChosenSort() async throws {
+        let model = try await indexedModel()
+        model.sort(by: .name)
+        model.sortAscending = false
+        model.scope = .regex
+        model.text = "txt"
+        try await settle(model)
+        #expect(model.items.map(\.result.name) == ["plans.txt", "invoice.txt"])
+        model.sortAscending = true
+        #expect(model.items.map(\.result.name) == ["invoice.txt", "plans.txt"])
+    }
+
+    /// Rows from a new search replace the old ones (the table goes back to the top); rows a
+    /// running regex search adds keep the generation (the table keeps its place).
+    @Test func rowsOfANewSearchChangeTheGeneration() async throws {
+        let model = try await indexedModel()
+        let start = model.resultsGeneration
+        model.text = "invoice"
+        try await settle(model)
+        #expect(model.resultsGeneration == start + 1)
+        model.text = "plans"
+        try await settle(model)
+        #expect(model.resultsGeneration == start + 2)
+        model.text = ""
+        #expect(model.items.isEmpty && model.resultsGeneration == start + 3)
+    }
+}
+
 @MainActor
 struct StopSearchTests {
-    /// An app model on a scratch index of two text files.
-    private func indexedModel() async throws -> SearchModel {
-        let (app, _) = try makeAppModel()
-        let root = FileManager.default.temporaryDirectory.appending(path: "moria-stop-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try Data("quarterly invoice".utf8).write(to: root.appending(path: "invoice.txt"))
-        try Data("holiday plans".utf8).write(to: root.appending(path: "plans.txt"))
-        var settings = app.settings
-        settings.roots = [root.resolvingSymlinksInPath().path]
-        try await app.controller.updateSettings(settings)
-        try await app.controller.indexNow(full: true)
-        return SearchModel(app: app)
-    }
-
-    private func settle(_ model: SearchModel) async throws {
-        for _ in 0..<200 where model.isSearching { try await Task.sleep(for: .milliseconds(10)) }
-    }
-
     @Test func stopEndsTheSearchAndClearsRowsFromThePreviousOne() async throws {
         let model = try await indexedModel()
         model.text = "invoice"
