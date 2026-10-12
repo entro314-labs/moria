@@ -251,7 +251,7 @@ private struct ResultsArea: View {
     private var emptyHint: String {
         switch app.progress.phase {
         case .scanning: "Moria is still scanning your files; more may turn up as the scan continues."
-        case .extracting, .recognizingText: "Moria is still reading file contents; more may turn up as indexing continues."
+        case .extracting, .recognizingText, .transcribing: "Moria is still reading file contents; more may turn up as indexing continues."
         case .updating, .readingDetails, .embedding, .idle: "Check the spelling or try a new search."
         }
     }
@@ -298,6 +298,11 @@ private struct StatusBar: View {
                     .foregroundStyle(.red)
                     .lineLimit(1)
                     .help(error)
+            } else if let problem = app.progress.transcriptionProblem {
+                Label("Recordings aren't being transcribed: " + problem, systemImage: "waveform.badge.exclamationmark")
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .help(problem + "\nRecordings wait until the speech model is available.")
             }
             Button {
                 showCoverage.toggle()

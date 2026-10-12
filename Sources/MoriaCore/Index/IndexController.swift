@@ -4,7 +4,7 @@ import Foundation
 /// Snapshot of indexing activity, published to the UI and CLI.
 public struct IndexProgress: Sendable, Equatable {
     public enum Phase: String, Sendable {
-        case idle, scanning, updating, extracting, recognizingText, readingDetails, embedding
+        case idle, scanning, updating, extracting, recognizingText, transcribing, readingDetails, embedding
     }
 
     public var phase: Phase = .idle
@@ -17,6 +17,9 @@ public struct IndexProgress: Sendable, Equatable {
     public var unreadableDirectories = 0
     public var lastScanDate: Date?
     public var lastError: String?
+    /// Why recordings can't be transcribed on this Mac right now (no model, download failed);
+    /// they stay pending, and the next pass tries again.
+    public var transcriptionProblem: String?
     /// Indexing is paused by the user; file changes are still collected and applied on resume.
     public var isPaused = false
 
@@ -49,6 +52,10 @@ public actor IndexController {
     private var wake: AsyncStream<Void>.Continuation?
     private var loop: Task<Void, Never>?
     private let ocrLimiter = AsyncLimiter(limit: 2)
+    private let transcriber = Transcriber()
+    /// When preparing transcription last failed, so a download isn't retried on every wake.
+    private var transcriptionFailedAt = Date.distantPast
+    static let transcriptionRetryInterval: TimeInterval = 10 * 60
     private let embedder: Embedder
 
     private enum MetaKey {
@@ -182,6 +189,8 @@ public actor IndexController {
         var requeueKinds: Set<FileKind> = []
         if old.ocrImages != new.ocrImages { requeueKinds.insert(.image) }
         if old.ocrScannedPDFs != new.ocrScannedPDFs { requeueKinds.insert(.pdf) }
+        // Off: the next read yields no text, and the trigger drops the transcript.
+        if old.transcribeRecordings != new.transcribeRecordings { requeueKinds.formUnion([.audio, .video]) }
         // Scope changes are applied by the full scan, which re-marks excluded files.
         if limitsChanged {
             try database.requeueContent()
@@ -350,7 +359,7 @@ public actor IndexController {
         publish(phase: .scanning)
         let eventID = FileWatcher.currentEventID
         let generation = try nextGeneration()
-        var writer = MetadataWriter(generation: generation, maxFileBytes: maxFileBytes)
+        var writer = MetadataWriter(generation: generation, maxFileBytes: maxFileBytes, transcribeRecordings: settings.transcribeRecordings)
         // Locations on drives that aren't connected keep their entries until the drive returns.
         let offline = try database.offlineMountPoints()
         let roots = settings.roots.filter { root in !offline.contains { Volumes.isInside(root, $0) } }
@@ -425,7 +434,8 @@ public actor IndexController {
         var crawler = Crawler(rules: rules)
         var merged: [String: Bool] = [:]
         for change in changes { merged[change.path, default: false] = merged[change.path, default: false] || change.rescanSubtree }
-        var writer = try MetadataWriter(generation: currentGeneration, maxFileBytes: maxFileBytes)
+        var writer = try MetadataWriter(generation: currentGeneration, maxFileBytes: maxFileBytes,
+                                        transcribeRecordings: settings.transcribeRecordings)
         var metas: [FileMeta] = []
         // A drive being ejected reports its files as gone; they stay, marked offline.
         let offline = try database.offlineMountPoints()
@@ -440,7 +450,8 @@ public actor IndexController {
             // A location is crawled even when it is a package (a photo library added on purpose).
             if rescan, meta.isDir, path == root || !crawler.isOpaquePackage(path: path) {
                 let subtreeGeneration = try nextGeneration()
-                var subtreeWriter = MetadataWriter(generation: subtreeGeneration, maxFileBytes: maxFileBytes)
+                var subtreeWriter = MetadataWriter(generation: subtreeGeneration, maxFileBytes: maxFileBytes,
+                                                   transcribeRecordings: settings.transcribeRecordings)
                 try crawler.crawl(root: path) { batch in
                     try subtreeWriter.write(batch, to: database)
                 }
@@ -479,23 +490,43 @@ public actor IndexController {
     }
 
     /// Extracts one batch of pending files: text formats first, then images (OCR, ~10x
-    /// slower per file). Returns false when nothing is pending.
+    /// slower per file), then recordings (transcription, one at a time). Returns false when
+    /// nothing is pending.
     private func extractBatch() async throws -> Bool {
         var phase = IndexProgress.Phase.extracting
+        var width = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
         // Files on drives that aren't connected wait for them.
         let offline = try database.offlineMountPoints()
-        var batch = try database.pendingFiles(limit: 128, images: false, outside: offline)
+        var batch = try database.pendingFiles(limit: 128, phase: .text, outside: offline)
         if batch.isEmpty {
             phase = .recognizingText
-            batch = try database.pendingFiles(limit: 32, images: true, outside: offline)
+            batch = try database.pendingFiles(limit: 32, phase: .images, outside: offline)
+        }
+        if batch.isEmpty {
+            phase = .transcribing
+            width = 1
+            batch = try database.pendingFiles(limit: 4, phase: .recordings, outside: offline)
+            if !batch.isEmpty, settings.transcribeRecordings {
+                // No model for this Mac or language, or its download failed: the recordings
+                // stay pending, the reason is shown, and the next pass (not every wake) tries again.
+                guard Date().timeIntervalSince(transcriptionFailedAt) > Self.transcriptionRetryInterval else { return false }
+                do {
+                    _ = try await transcriber.prepare()
+                    state.transcriptionProblem = nil
+                } catch {
+                    transcriptionFailedAt = Date()
+                    state.transcriptionProblem = String(describing: error)
+                    publish(phase: state.phase)
+                    return false
+                }
+            }
         }
         guard !batch.isEmpty else { return false }
         state.remainingFiles = try database.pendingCount()
         publish(phase: phase)
 
-        let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter)
+        let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter, transcriber: transcriber)
         let maxFileBytes = maxFileBytes
-        let width = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
         var results: [ExtractionResult] = []
         var changed: [PendingFile] = []
         try await withThrowingTaskGroup(of: Outcome.self) { group in
@@ -593,7 +624,7 @@ public actor IndexController {
         let batch = try database.filesNeedingEmbedding(limit: 64, outside: try database.offlineMountPoints())
         guard !batch.isEmpty else { return false }
         publish(phase: .embedding)
-        let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter)
+        let extractor = ContentExtractor(settings: settings, ocrLimiter: ocrLimiter, transcriber: transcriber)
         var vectors: [(id: Int64, chunks: [(chunk: Int, vector: [Float])])] = []
         for file in batch {
             try Task.checkCancellation()

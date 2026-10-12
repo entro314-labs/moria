@@ -28,11 +28,14 @@ struct ExtractionResult: Sendable {
 struct MetadataWriter {
     let generation: Int
     let maxFileBytes: Int64
+    /// Audio and video wait to be transcribed instead of having no text.
+    let transcribeRecordings: Bool
     private var dirIDs: [String: Int64] = [:]
 
-    init(generation: Int, maxFileBytes: Int64) {
+    init(generation: Int, maxFileBytes: Int64, transcribeRecordings: Bool) {
         self.generation = generation
         self.maxFileBytes = maxFileBytes
+        self.transcribeRecordings = transcribeRecordings
     }
 
     mutating func write(_ batch: [FileMeta], to database: IndexDatabase) throws {
@@ -98,7 +101,8 @@ struct MetadataWriter {
         if meta.size == 0 || meta.size > maxFileBytes { return .none }
         if meta.isCloudOnly { return .cloudOnly }
         switch meta.kind {
-        case .folder, .application, .package, .audio, .video, .archive: return .none
+        case .folder, .application, .package, .archive: return .none
+        case .audio, .video: return transcribeRecordings ? .pending : .none
         case .document, .pdf, .image, .text, .code, .other: return .pending
         }
     }
@@ -173,7 +177,22 @@ extension IndexDatabase {
     /// Next files to extract, newest first: files never read before stale ones, whose old text
     /// is still searchable. `images: false` returns everything except images, so fast text
     /// extraction finishes before the slow OCR pass (`images: true`) starts.
-    func pendingFiles(limit: Int, images: Bool, outside offline: Set<String> = []) throws -> [PendingFile] {
+    /// What an extraction pass reads: text formats first, then images (OCR, ~10x slower per
+    /// file), then recordings (transcription, minutes per hour of speech), so the slow kinds
+    /// never hold up the others.
+    enum ExtractionPhase {
+        case text, images, recordings
+
+        var kindClause: String {
+            switch self {
+            case .text: "f.kind NOT IN ('image', 'audio', 'video')"
+            case .images: "f.kind = 'image'"
+            case .recordings: "f.kind IN ('audio', 'video')"
+            }
+        }
+    }
+
+    func pendingFiles(limit: Int, phase: ExtractionPhase, outside offline: Set<String> = []) throws -> [PendingFile] {
         let outside = Self.outside(offline, alias: "d")
         return try pool.read { db in
             var files: [PendingFile] = []
@@ -182,8 +201,8 @@ extension IndexDatabase {
                 files += try Row.fetchAll(db, sql: """
                     SELECT f.id, \(Self.pathSQL) AS path, f.ext, f.kind, f.size, f.mtime
                     FROM file f JOIN dir d ON d.id = f.dirId
-                    WHERE f.contentState = ? AND (f.kind = 'image') = ? AND \(outside.sql) ORDER BY f.mtime DESC LIMIT ?
-                    """, arguments: [state.rawValue, images] + outside.arguments + [limit - files.count]).map { row in
+                    WHERE f.contentState = ? AND \(phase.kindClause) AND \(outside.sql) ORDER BY f.mtime DESC LIMIT ?
+                    """, arguments: [state.rawValue] + outside.arguments + [limit - files.count]).map { row in
                     PendingFile(
                         id: row["id"], path: row["path"], ext: row["ext"],
                         kind: FileKind(rawValue: row["kind"]) ?? .other, size: row["size"], mtime: row["mtime"]
@@ -371,7 +390,7 @@ extension IndexDatabase {
     /// recognized images outside `~/Library` and hidden folders. The sentence model is trained
     /// on prose; code and support files dominate counts without helping.
     static func embeddable(home: String) -> (sql: String, arguments: StatementArguments) {
-        ("f.kind IN ('document', 'pdf', 'text', 'image') AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'",
+        ("f.kind IN ('document', 'pdf', 'text', 'image', 'audio', 'video') AND NOT (d.path = ? OR (d.path >= ? AND d.path < ?)) AND d.path NOT LIKE '%/.%'",
          [home + "/Library", home + "/Library/", home + "/Library0"])
     }
 

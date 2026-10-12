@@ -5,6 +5,7 @@ Deep search for macOS: every file name, the text inside documents, PDFs, code an
 - **Updates itself** — through Sparkle, from GitHub Releases; turn automatic checks off in Settings.
 - **Everything by name** — every file and folder under your locations, including hidden files, app data and cloud folders. Cloud-only files are indexed by name and never downloaded.
 - **Contents** — plain text and code, PDFs (scanned pages via text recognition), Word, RTF, OpenDocument, PowerPoint, Excel, EPUB, HTML, email files, and text in screenshots and photos. Photos are also found by what they show (“beach”, “document”), recognized on this Mac. Accent- and case-insensitive in every script, with English, Greek and Russian stemming (a search for one form of a word finds the others).
+- **Spoken words** (optional) — speech in audio and video files, transcribed on this Mac, with the time each line was said at.
 - **Regex** over names, contents and extracted document text (bundled ripgrep).
 - **Live** — follows filesystem events and catches up on changes made while it wasn't running.
 - **External drives** — locations on external drives and network volumes stay searchable while ejected (marked Offline) and are read again when they return.
@@ -46,7 +47,7 @@ moria search "lease agreement" --json
 moria search --regex 'INV-\d{4}-\d+' --filters "ext:pdf in:~/Documents"
 moria search --ask "pdf invoices from last spring"
 moria search "budget" --show          # open the results in the app
-moria index | watch | stats | config --set semanticSearchEnabled=true
+moria index | watch | stats | config --set semanticSearchEnabled=true transcribeRecordings=true
 moria mcp                              # Model Context Protocol server for AI agents (stdio)
 ```
 
@@ -58,7 +59,7 @@ Shortcuts has two actions: **Search in Moria** (opens a search) and **Find Files
 
 Everything is indexed and searched on this Mac. Allow **Full Disk Access** (System Settings › Privacy & Security) so Moria can see Mail, Messages and other protected data.
 
-The index lives in `~/Library/Application Support/Moria/index.sqlite`. Names cost roughly 250 bytes per file; extracted text about a quarter of its raw size (the text itself is not stored, except for PDFs, Office files and recognized text). Settings › Contents controls which folders are read for text: by default `~/Library`, hidden folders and dependency/build folders are indexed by name only. Symbolic links are indexed by name; their targets are read where they are. Changing what is read keeps existing text searchable until each file is read again.
+The index lives in `~/Library/Application Support/Moria/index.sqlite`. Names cost roughly 250 bytes per file; extracted text about a quarter of its raw size (the text itself is not stored, except for PDFs, Office files, recognized text and transcripts). Settings › Contents controls which folders are read for text: by default `~/Library`, hidden folders and dependency/build folders are indexed by name only. Symbolic links are indexed by name; their targets are read where they are. Changing what is read keeps existing text searchable until each file is read again. Transcription of audio and video is off by default: it runs one recording at a time in the system language, after everything else is read.
 
 ## Building
 

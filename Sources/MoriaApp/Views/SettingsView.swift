@@ -131,13 +131,15 @@ private struct ContentSettings: View {
                 Toggle("Recognize text in scanned PDFs", isOn: binding(\.ocrScannedPDFs))
                 Toggle("Recognize what photos show", isOn: binding(\.imageLabels))
                     .help("Words like “beach”, “receipt” or “dog” find the photos that show them.")
+                Toggle("Transcribe speech in audio and video", isOn: binding(\.transcribeRecordings))
+                    .help("Voice memos, meetings and videos become searchable by what is said, with the time it was said at. In the system language, on this Mac; an hour of speech takes a few minutes, one recording at a time.")
                 Toggle("Read files inside hidden folders", isOn: binding(\.extractHiddenContent))
                 Stepper("Text kept per file: \(app.settings.maxContentKilobytes) KB",
                         value: intBinding(\.maxContentKilobytes), in: 32...4096, step: 32)
                 Stepper("Skip files larger than \(app.settings.maxFileMegabytes) MB",
                         value: intBinding(\.maxFileMegabytes), in: 10...2000, step: 10)
             } footer: {
-                Text("Text recognition runs after all other files are read, a few images per second.")
+                Text("Text recognition runs after all other files are read, a few images per second. Transcription runs last, one recording at a time, in the system language; recordings over three hours are skipped, and “text kept per file” caps long transcripts.")
             }
             Section {
                 PathList(paths: app.settings.contentExcludedPaths, addTitle: "Add Folder…") { paths in
@@ -155,6 +157,7 @@ private struct ContentSettings: View {
                         $0.ocrImages = defaults.ocrImages
                         $0.ocrScannedPDFs = defaults.ocrScannedPDFs
                         $0.imageLabels = defaults.imageLabels
+                        $0.transcribeRecordings = defaults.transcribeRecordings
                     }
                 }
                 .controlSize(.small)

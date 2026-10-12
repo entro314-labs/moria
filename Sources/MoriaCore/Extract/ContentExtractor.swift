@@ -12,21 +12,26 @@ struct ContentExtractor: Sendable {
     let maxBytes: Int
     let ocrImages: Bool
     let ocrScannedPDFs: Bool
+    let transcribeRecordings: Bool
     let home: String
     let ocrLimiter: AsyncLimiter
+    let transcriber: Transcriber
 
-    init(settings: MoriaSettings, home: String = NSHomeDirectory(), ocrLimiter: AsyncLimiter) {
+    init(settings: MoriaSettings, home: String = NSHomeDirectory(), ocrLimiter: AsyncLimiter, transcriber: Transcriber) {
         maxBytes = max(4, settings.maxContentKilobytes) * 1024
         ocrImages = settings.ocrImages
         ocrScannedPDFs = settings.ocrScannedPDFs
+        transcribeRecordings = settings.transcribeRecordings
         self.home = home
         self.ocrLimiter = ocrLimiter
+        self.transcriber = transcriber
     }
 
     /// Formats whose extracted text is stored (`doc_text`): re-extracting them for snippets,
-    /// regex or embeddings is slow. Text and code are simply re-read from disk.
+    /// regex or embeddings is slow (transcripts most of all). Text and code are simply re-read
+    /// from disk.
     static func keepsExtractedText(_ kind: FileKind) -> Bool {
-        kind == .pdf || kind == .document || kind == .image
+        kind == .pdf || kind == .document || kind == .image || kind == .audio || kind == .video
     }
 
     /// Unknown-format files above this size are not sniffed for text.
@@ -47,7 +52,9 @@ struct ContentExtractor: Sendable {
             try await extractDocument(url, ext: ext)
         case .image:
             try await ocrImageIfEligible(url, path: path, size: size)
-        case .folder, .application, .package, .audio, .video, .archive:
+        case .audio, .video:
+            transcribeRecordings ? try await transcriber.transcribe(url) : nil
+        case .folder, .application, .package, .archive:
             nil
         }
         guard let raw else { return nil }

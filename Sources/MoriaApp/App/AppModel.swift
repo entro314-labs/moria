@@ -278,6 +278,7 @@ final class AppModel {
         case .updating: return "Applying changes…"
         case .extracting: return "Reading contents… \(count(progress.remainingFiles)) left"
         case .recognizingText: return "Recognizing text in images… \(count(progress.remainingFiles)) left"
+        case .transcribing: return "Transcribing recordings… \(count(progress.remainingFiles)) left"
         case .readingDetails: return "Reading photo, audio and document details…"
         case .embedding: return "Building semantic index… \(count(progress.embeddedFiles)) done"
         case .idle:

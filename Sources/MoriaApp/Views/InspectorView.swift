@@ -1,3 +1,4 @@
+import AVKit
 import ImageIO
 import MoriaCore
 import PDFKit
@@ -29,20 +30,22 @@ enum InspectorLayout: String, CaseIterable, Identifiable {
 struct InspectorView: View {
     let model: SearchModel
     @AppStorage("inspectorLayout") private var layout: InspectorLayout = .both
+    /// The player for a selected recording; a transcript line seeks it.
+    @State private var playback = RecordingPlayback()
 
     var body: some View {
         Group {
             if let item = model.selectedItems.first {
                 switch layout {
                 case .preview:
-                    PreviewPane(result: item.result)
+                    PreviewPane(result: item.result, playback: playback)
                 case .info:
-                    InfoPane(model: model, item: item)
+                    InfoPane(model: model, item: item, playback: playback)
                 case .both:
                     VSplitView {
-                        PreviewPane(result: item.result)
+                        PreviewPane(result: item.result, playback: playback)
                             .frame(minHeight: 160, idealHeight: 380)
-                        InfoPane(model: model, item: item)
+                        InfoPane(model: model, item: item, playback: playback)
                             .frame(minHeight: 180)
                     }
                 }
@@ -68,11 +71,45 @@ struct InspectorView: View {
 
 // MARK: - Preview
 
+/// Plays the selected audio or video file. Clicking a transcript line jumps to its time.
+@Observable
+final class RecordingPlayback {
+    private(set) var player: AVPlayer?
+    private var url: URL?
+
+    static func isRecording(_ result: SearchResult) -> Bool {
+        (result.kind == .audio || result.kind == .video) && !result.isCloudOnly && !result.isOffline
+    }
+
+    func load(_ result: SearchResult) {
+        guard Self.isRecording(result) else { return stop() }
+        guard url != result.url else { return }
+        player?.pause()
+        player = AVPlayer(url: result.url)
+        url = result.url
+    }
+
+    func stop() {
+        player?.pause()
+        player = nil
+        url = nil
+    }
+
+    func seek(to seconds: TimeInterval) {
+        guard let player else { return }
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        player.play()
+    }
+}
+
 private struct PreviewPane: View {
     let result: SearchResult
+    let playback: RecordingPlayback
 
     var body: some View {
-        Group {
+        // A ZStack, not a Group: modifiers on a Group apply to each branch, so the player
+        // branch replacing the Quick Look one would fire onDisappear and stop the player.
+        ZStack {
             if result.isOffline {
                 ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
                                        description: Text("Connect the drive to preview or open this file. Its indexed text is still searchable."))
@@ -85,6 +122,11 @@ private struct PreviewPane: View {
                 } actions: {
                     Button("Open") { FileActions.open([result.url]) }
                 }
+            } else if RecordingPlayback.isRecording(result), let player = playback.player {
+                // A player rather than Quick Look, so transcript lines can jump to their time.
+                RecordingPlayer(player: player)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(10)
             } else {
                 QuickLookPreview(url: result.url)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -92,6 +134,8 @@ private struct PreviewPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: result.id) { playback.load(result) }
+        .onDisappear { playback.stop() }
     }
 }
 
@@ -100,6 +144,7 @@ private struct PreviewPane: View {
 private struct InfoPane: View {
     let model: SearchModel
     let item: ResultItem
+    let playback: RecordingPlayback
     @State private var currentMatch = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var facts: [(String, String)] = []
@@ -225,7 +270,7 @@ private struct InfoPane: View {
                         .background(index == currentMatch ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear),
                                     in: RoundedRectangle(cornerRadius: 5))
                         .id(index)
-                        .onTapGesture { currentMatch = index }
+                        .onTapGesture { select(index, lines) }
                         // The highlight moves to the next match instead of jumping.
                         .animation(reduceMotion ? nil : .snappy(duration: 0.15), value: currentMatch)
                     }
@@ -248,8 +293,16 @@ private struct InfoPane: View {
 
     private func step(_ delta: Int, _ count: Int, _ proxy: ScrollViewProxy) {
         guard count > 0 else { return }
-        currentMatch = (currentMatch + delta + count) % count
+        select((currentMatch + delta + count) % count, lines)
         withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(currentMatch, anchor: .center) }
+    }
+
+    /// Makes a line current; a transcript line also plays the recording from its time.
+    private func select(_ index: Int, _ lines: [(number: Int, text: String)]) {
+        currentMatch = index
+        if lines.indices.contains(index), let seconds = Transcriber.time(of: lines[index].text) {
+            playback.seek(to: seconds)
+        }
     }
 
     private var details: some View {
@@ -341,6 +394,23 @@ private struct PathBreadcrumb: View {
                 }
             }
         }
+    }
+}
+
+/// AVKit's player with its transport bar always shown: audio has no picture to hover over.
+private struct RecordingPlayer: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.showsFullScreenToggleButton = false
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
     }
 }
 

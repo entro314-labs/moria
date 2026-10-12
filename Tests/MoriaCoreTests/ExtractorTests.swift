@@ -12,7 +12,7 @@ struct ExtractorTests {
         dir = try TestSupport.makeTempDirectory()
         var settings = MoriaSettings.defaults(home: "/nonexistent-home")
         settings.maxContentKilobytes = 64
-        extractor = ContentExtractor(settings: settings, home: "/nonexistent-home", ocrLimiter: AsyncLimiter(limit: 1))
+        extractor = ContentExtractor(settings: settings, home: "/nonexistent-home", ocrLimiter: AsyncLimiter(limit: 1), transcriber: Transcriber())
     }
 
     func write(_ name: String, _ data: Data) throws -> URL {
@@ -37,7 +37,7 @@ struct ExtractorTests {
     @Test func smallTextLimitsReadOnlyThatMuch() throws {
         var settings = MoriaSettings.defaults()
         settings.maxContentKilobytes = 1  // the CLI accepts any positive number; 4 KB minimum
-        let extractor = ContentExtractor(settings: settings, ocrLimiter: AsyncLimiter(limit: 1))
+        let extractor = ContentExtractor(settings: settings, ocrLimiter: AsyncLimiter(limit: 1), transcriber: Transcriber())
         let url = try write("long.txt", Data(repeating: UInt8(ascii: "a"), count: 20000))
         #expect(try extractor.readText(url)?.utf8.count == 4096)
     }
@@ -80,6 +80,13 @@ struct ExtractorTests {
         run.cancel()
         _ = await run.result
         #expect(ContinuousClock.now - started < .seconds(10))
+    }
+
+    @Test func transcriptTimesRoundTrip() {
+        #expect(Transcriber.stamp(42) == "0:42" && Transcriber.stamp(187) == "3:07" && Transcriber.stamp(3912) == "1:05:12")
+        #expect(Transcriber.time(of: "[3:07] hello") == 187 && Transcriber.time(of: "[1:05:12] hello") == 3912)
+        #expect(Transcriber.time(of: "\u{1}[0:42]\u{2} hello") == 42)
+        #expect(Transcriber.time(of: "no stamp") == nil && Transcriber.time(of: "[x:y] no") == nil)
     }
 
     @Test func truncatesOnCharacterBoundary() {

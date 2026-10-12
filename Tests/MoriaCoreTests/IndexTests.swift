@@ -185,6 +185,65 @@ struct IndexTests {
         #expect(try await search(engine, "apartment").isEmpty)
     }
 
+    /// Turning transcription on queues recordings that had no text; off queues them again so
+    /// the next read drops the transcript. No speech model is needed for the bookkeeping.
+    @Test func transcriptionSettingRequeuesRecordings() async throws {
+        try Data("not really audio".utf8).write(to: root.appending(path: "Documents/memo.aiff"))
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        try await controller.scanOnly()
+        func state() async throws -> Int? {
+            try await database.pool.read { db in
+                try Int.fetchOne(db, sql: "SELECT contentState FROM file WHERE name = 'memo.aiff'")
+            }
+        }
+        #expect(try await state() == ContentState.none.rawValue)
+        var settings = await controller.settings
+        settings.transcribeRecordings = true
+        try await controller.updateSettings(settings)
+        #expect(try await state() == ContentState.pending.rawValue)
+        // A recording crawled while the setting is on waits to be read too.
+        try Data("x".utf8).write(to: root.appending(path: "Documents/later.m4a"))
+        try await controller.scanOnly()
+        let later = try await database.pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT contentState FROM file WHERE name = 'later.m4a'")
+        }
+        #expect(later == ContentState.pending.rawValue)
+    }
+
+    /// Speech in a recording is searchable, with the time it was said at; turning the setting
+    /// off drops the transcript. Needs the speech model for the system language (never
+    /// downloaded here).
+    @Test func transcribesRecordingsWhenTurnedOn() async throws {
+        guard await Transcriber.isReady() else { return }
+        let memo = root.appending(path: "Documents/memo.aiff")
+        let say = Process()
+        say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        say.arguments = ["-o", memo.path, "The quarterly budget meeting is on Thursday"]
+        try say.run()
+        say.waitUntilExit()
+        guard say.terminationStatus == 0 else { return }
+
+        let (database, controller) = try await TestSupport.makeIndex(root: root)
+        var settings = await controller.settings
+        settings.transcribeRecordings = true
+        try await controller.updateSettings(settings)
+        try await controller.indexNow(full: true)
+        let engine = SearchEngine(database: database, home: root.path)
+        let hits = try await engine.search(QueryParser(home: root.path).parse("quarterly budget"))
+        #expect(hits.map(\.name) == ["memo.aiff"])
+        let hit = try #require(hits.first)
+        let text = try #require(try database.storedText(fileID: hit.id))
+        #expect(text.hasPrefix("[0:00] "), "transcript: \(text)")
+        #expect(Transcriber.time(of: text) == 0)
+        let snippet = try await engine.snippet(for: hit, query: QueryParser(home: root.path).parse("budget"))
+        #expect(snippet?.contains("budget") == true)
+
+        settings.transcribeRecordings = false
+        try await controller.updateSettings(settings)
+        try await controller.indexNow(full: false)
+        #expect(try await engine.search(QueryParser(home: root.path).parse("quarterly budget")).isEmpty)
+    }
+
     @Test func symlinksAreIndexedByNameOnly() async throws {
         let outside = try TestSupport.makeTempDirectory()
         try Data("platypus habitat notes".utf8).write(to: outside.appending(path: "notes.txt"))

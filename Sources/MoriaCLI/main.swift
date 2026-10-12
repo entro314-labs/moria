@@ -58,6 +58,8 @@ struct Index: AsyncParsableCommand {
                     print("\(elapsed)  extracting \(progress.extractedFiles) done, \(progress.remainingFiles) left")
                 case .recognizingText:
                     print("\(elapsed)  OCR        \(progress.extractedFiles) done, \(progress.remainingFiles) left")
+                case .transcribing:
+                    print("\(elapsed)  transcribing \(progress.extractedFiles) done, \(progress.remainingFiles) left")
                 case .readingDetails:
                     if lastPhase != progress.phase { print("\(elapsed)  reading photo, audio and document details") }
                 case .embedding:
@@ -319,6 +321,7 @@ struct Config: AsyncParsableCommand {
         case "imageLabels": settings.imageLabels = try bool()
         case "semanticSearchEnabled": settings.semanticSearchEnabled = try bool()
         case "naturalLanguageQueriesEnabled": settings.naturalLanguageQueriesEnabled = try bool()
+        case "transcribeRecordings": settings.transcribeRecordings = try bool()
         default: throw ValidationError("Unknown setting \(key)")
         }
     }

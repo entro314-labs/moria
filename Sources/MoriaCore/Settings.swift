@@ -32,6 +32,8 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
     public var semanticSearchEnabled: Bool
     /// Lets the on-device language model turn plain-language requests into filters.
     public var naturalLanguageQueriesEnabled: Bool
+    /// Transcribes speech in audio and video files so their words are searchable (slow; off by default).
+    public var transcribeRecordings: Bool
 
     public static func defaults(home: String = NSHomeDirectory()) -> MoriaSettings {
         MoriaSettings(
@@ -63,7 +65,8 @@ public struct MoriaSettings: Codable, Sendable, Equatable {
             ocrScannedPDFs: true,
             imageLabels: true,
             semanticSearchEnabled: false,
-            naturalLanguageQueriesEnabled: false
+            naturalLanguageQueriesEnabled: false,
+            transcribeRecordings: false
         )
     }
 }
@@ -92,5 +95,6 @@ extension MoriaSettings {
         imageLabels = try value(.imageLabels, defaults.imageLabels)
         semanticSearchEnabled = try value(.semanticSearchEnabled, defaults.semanticSearchEnabled)
         naturalLanguageQueriesEnabled = try value(.naturalLanguageQueriesEnabled, defaults.naturalLanguageQueriesEnabled)
+        transcribeRecordings = try value(.transcribeRecordings, defaults.transcribeRecordings)
     }
 }
