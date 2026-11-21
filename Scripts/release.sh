@@ -37,7 +37,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
   echo "Commit or stash changes first: the release is built from what is committed." >&2
   exit 1
 fi
-IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')}
+IDENTITY=${SIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')}
 [[ "$IDENTITY" == "Developer ID Application:"* ]] || { echo "No Developer ID Application identity; set SIGN_IDENTITY." >&2; exit 1; }
 if [[ "$DRY_RUN" != 1 ]]; then
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
