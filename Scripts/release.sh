@@ -10,8 +10,8 @@
 #
 # Needs, once:
 #   - a "Developer ID Application" signing identity (or SIGN_IDENTITY naming one)
-#   - notarization credentials in the keychain, stored with
-#       xcrun notarytool store-credentials moria --apple-id <id> --team-id <team>
+#   - notarization credentials in the keychain, stored from an App Store Connect API key with
+#       xcrun notarytool store-credentials notary --key AuthKey_<KEY_ID>.p8 --key-id <KEY_ID> --issuer <ISSUER_ID>
 #     (NOTARY_PROFILE names another profile)
 #   - the update signing key in the keychain (see Scripts/release.env)
 #   - gh signed in with push access to the repository
@@ -21,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=${1:?usage: Scripts/release.sh <version>, e.g. 0.2.0}
-NOTARY_PROFILE=${NOTARY_PROFILE:-moria}
+NOTARY_PROFILE=${NOTARY_PROFILE:-notary}
 DRY_RUN=${DRY_RUN:-0}
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must look like 1.2.3, got $VERSION" >&2; exit 1; }
@@ -42,7 +42,7 @@ IDENTITY=${SIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-$(security find-identity -v 
 if [[ "$DRY_RUN" != 1 ]]; then
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     echo "No notarization credentials in keychain profile \"$NOTARY_PROFILE\". Store them with:" >&2
-    echo "  xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <apple id> --team-id <team id>" >&2
+    echo "  xcrun notarytool store-credentials $NOTARY_PROFILE --key AuthKey_<KEY_ID>.p8 --key-id <KEY_ID> --issuer <ISSUER_ID>" >&2
     exit 1
   fi
   gh auth status >/dev/null 2>&1 || { echo "gh isn't signed in; run gh auth login." >&2; exit 1; }
